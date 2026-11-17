@@ -6,6 +6,7 @@ SF.initPeds=function(){
  for(let i=0;i<100;i++){
  let x,z;do{x=SF.range(-205,205);z=SF.range(-205,205);}while(SF.solid(x,z,.5));
  if(i<80){const r=SF.C.roads[i%7];x=r+(i%2?10.5:-10.5);z=SF.range(-208,208);}
+ if(i<18){x=[-202.5,-181.5,53.5,74.5,-10.5,10.5][i%6];z=[22,48,-42,-76,86,110][i%6]+Math.floor(i/6)*8;}
  SF.peds.push({x:x,z:z,homeX:x,homeZ:z,angle:SF.range(0,6.28),health:100,fear:0,think:0,tx:x,tz:z,officer:i>=90,active:i<90,hit:0,cooldown:0,guard:false});
  }
  // Two visible lot guards are active police even before a pursuit.
