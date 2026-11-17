@@ -1,12 +1,5 @@
-// A small seeded random number generator (mulberry32): the same seed gives the same game,
-// which is what makes the screenshot scenes repeatable.
-
-export function createRandom(seed) {
-  let a = seed | 0;
-  return function random() {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+'use strict';
+// Deterministic city layout; simulation decisions use the same inexpensive generator.
+SF.seed=1709;
+SF.random=function(){ SF.seed=(Math.imul(SF.seed,1664525)+1013904223)|0; return (SF.seed>>>0)/4294967296; };
+SF.range=function(a,b){return a+(b-a)*SF.random();};

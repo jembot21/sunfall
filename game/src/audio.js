@@ -1,0 +1,7 @@
+'use strict';
+// Offline WebAudio: reusable oscillator voices, engine and alternating pursuit siren.
+SF.audio={ctx:null,index:0,voices:[],ready:false};
+SF.audio.init=function(){if(this.ctx){this.ctx.resume();return;}try{const A=window.AudioContext||window.webkitAudioContext;this.ctx=new A();this.master=this.ctx.createGain();this.master.gain.value=SF.settings.sound?.24:0;this.master.connect(this.ctx.destination);
+ for(let i=0;i<8;i++){const o=this.ctx.createOscillator(),g=this.ctx.createGain();o.type=i<2?'sawtooth':'triangle';g.gain.value=0;o.connect(g);g.connect(this.master);o.start();this.voices.push({o:o,g:g});}this.ready=true;}catch(e){this.ready=false;}};
+SF.audio.tone=function(hz,duration,gain){if(!this.ready)return;const v=this.voices[2+(this.index++%6)],now=this.ctx.currentTime;v.o.frequency.setValueAtTime(hz,now);v.o.frequency.exponentialRampToValueAtTime(Math.max(30,hz*.35),now+duration);v.g.gain.cancelScheduledValues(now);v.g.gain.setValueAtTime(gain,now);v.g.gain.exponentialRampToValueAtTime(.0001,now+duration);};
+SF.audio.update=function(){if(!this.ready)return;const now=this.ctx.currentTime;this.master.gain.setTargetAtTime(SF.mode==='play'&&SF.settings.sound?.24:0,now,.08);this.voices[0].o.frequency.setTargetAtTime(SF.car?45+Math.abs(SF.car.speed)*6:40,now,.1);this.voices[0].g.gain.setTargetAtTime(SF.car?.075:0,now,.12);this.voices[1].o.frequency.setTargetAtTime(Math.floor(SF.time*2)%2?620:830,now,.08);this.voices[1].g.gain.setTargetAtTime(SF.wanted&&SF.seen?.035:0,now,.2);};
