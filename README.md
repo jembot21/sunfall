@@ -1,4 +1,7 @@
 # Sunfall
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/jembot21/sunfall/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/jembot21/sunfall/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 **Nothing stays golden.** Dario Venn has eighty dollars, a borrowed car, and one last delivery. A sealed package pulls him into the underworld of Solano Bay, an original coastal city of palms, neon, downtown towers, marina piers and warm sand.
 
