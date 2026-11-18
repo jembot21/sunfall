@@ -14,7 +14,7 @@
   const camera = new T.PerspectiveCamera(62, innerWidth / innerHeight, .1, 1800);
   camera.position.set(0, 24, 32);
   const hemi = new T.HemisphereLight(0xffd6b2, 0x49463f, .82); scene.add(hemi);
-  const sunLight = new T.DirectionalLight(0xffbc72, 2.25);
+  const sunLight = new T.DirectionalLight(0xffc27a, 2.35);
   sunLight.position.set(-120, 90, -110); sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(2048, 2048);
   Object.assign(sunLight.shadow.camera, {left: -80, right: 80, top: 80, bottom: -80, near: 1, far: 420});

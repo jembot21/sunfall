@@ -10,6 +10,11 @@ const port = arg >= 0 ? Number(process.argv[arg + 1]) : 8080;
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.json': 'application/json; charset=utf-8' };
 const server = createServer(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, { Allow: 'GET, HEAD', 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Method not allowed');
+    return;
+  }
   try {
     const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
     const target = resolve(root, `.${pathname === '/' ? '/index.html' : pathname}`);

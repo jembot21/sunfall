@@ -2,6 +2,7 @@
 'use strict';
 const health=document.getElementById('healthFill'),cash=document.getElementById('cash'),wanted=document.getElementById('wanted'),mission=document.getElementById('mission'),state=document.getElementById('state'),stateText=document.getElementById('stateText'),map=document.getElementById('map'),ctx=map.getContext('2d');
 cash.style.textAlign='right';cash.style.minWidth='8ch';cash.style.textShadow='0 1px 3px #0009';
+const bayLabel=document.createElement('div');bayLabel.textContent='SOLANO BAY';Object.assign(bayLabel.style,{position:'absolute',right:'24px',top:'248px',width:'220px',textAlign:'center',fontSize:'10px',letterSpacing:'2px',color:'#ffd078',textShadow:'0 1px 3px #000'});document.getElementById('hud').appendChild(bayLabel);
 let banner=0;
 function showBanner(t,x){const text=t+'  |  '+x;if(mission.textContent!==text&&SF.audio)SF.audio.click();mission.textContent=text;banner=5;}
 function draw(){

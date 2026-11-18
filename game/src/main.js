@@ -11,7 +11,7 @@ function loop(now){
   const p=SF.player.position,camera=SF.render.camera;
   if(!SF.player.inCar){
    const target=p.clone().add(new THREE.Vector3(0,2,0));
-   const desired=p.clone().add(new THREE.Vector3(0,8,16));
+   const desired=p.clone().add(new THREE.Vector3(0,8,SF.input.cameraDistance));
    camera.position.lerp(desired,1-Math.exp(-dt*5));camera.lookAt(target);
   }else{
    const c=SF.player.inCar,desired=c.pos.clone().add(new THREE.Vector3(-Math.sin(c.heading)*10,6,-Math.cos(c.heading)*10));
@@ -22,5 +22,5 @@ function loop(now){
  SF.render.update(dt);SF.input.endFrame();requestAnimationFrame(loop);
 }
 window.addEventListener('sf:start',()=>{SF.audio.init();SF.missions.start();});
-SF.save.load();SF.missions.start();window.__SF=SF;requestAnimationFrame(loop);
+SF.save.load();SF.missions.start();window.__SF=SF;window.__SF_MODE=(SF.shots&&SF.shots.name)||'play';requestAnimationFrame(loop);
 })(window.SF);

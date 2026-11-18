@@ -28,7 +28,8 @@ const dossier = buildDossier(output, {
 });
 writeFileSync(resolve(output, 'dossier.json'), dossier);
 function countFiles(dir: string): number {
-  return readdirSync(dir, { withFileTypes: true }).reduce((count, item) =>
+  const sortedEntries = readdirSync(dir, { withFileTypes: true }).sort((a: {name: string}, b: {name: string}) => a.name.localeCompare(b.name));
+  return sortedEntries.reduce((count: number, item: {isDirectory(): boolean; name: string; isFile(): boolean}) =>
     count + (item.isDirectory() ? countFiles(resolve(dir, item.name)) : Number(item.isFile())), 0);
 }
 const screenshots = countFiles(resolve(output, 'screenshots'));

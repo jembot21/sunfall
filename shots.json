@@ -1,6 +1,6 @@
 [
-  { "name": "1-chase.jpg", "query": "?shot=chase&seed=7" },
-  { "name": "2-downtown.jpg", "query": "?shot=downtown&seed=7" },
-  { "name": "3-coast.jpg", "query": "?shot=coast&seed=7" },
-  { "name": "4-end.jpg", "query": "?shot=end&seed=7" }
+  { "name": "1-chase.jpg", "query": "?shot=chase&seed=9" },
+  { "name": "2-downtown.jpg", "query": "?shot=downtown&seed=9" },
+  { "name": "3-coast.jpg", "query": "?shot=coast&seed=9" },
+  { "name": "4-end.jpg", "query": "?shot=end&seed=9" }
 ]

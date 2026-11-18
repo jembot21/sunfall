@@ -17,7 +17,8 @@
   const host = document.getElementById('game');
   const startHint = start.querySelector?.('p');
   if (startHint) startHint.textContent = 'Click or press Enter to play';
-  const mouse = {x: 0, y: 0, dx: 0, dy: 0};
+  const mouse = {x: 0, y: 0, dx: 0, dy: 0, wheel: 0};
+  let cameraDistance = 16;
   let started = false, paused = false;
   function clear() { keys.clear(); edges.clear(); mouse.dx = mouse.dy = 0; }
   function setPaused(value) {
@@ -63,12 +64,16 @@
     }
     mouse.dx += event.movementX || 0; mouse.dy += event.movementY || 0;
   });
+  host.addEventListener('wheel', event => {
+    event.preventDefault();
+    cameraDistance = Math.max(10, Math.min(24, cameraDistance + Math.sign(event.deltaY) * 1.5));
+  }, {passive: false});
   host.addEventListener('contextmenu', event => {
     event.preventDefault();
     event.stopPropagation();
   }, {capture: true});
   SF.input = {
-    mouse, clear, setPaused,
+    mouse, clear, setPaused, get cameraDistance() { return cameraDistance; },
     get started() { return started; }, get paused() { return paused; },
     isDown(action) { return (mapping[action] || []).some(key => keys.has(key)); },
     pressed(action) {

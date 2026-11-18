@@ -15,6 +15,7 @@ function createCar(color){
  for(const x of [-.85,.85])box(.55,.28,.12,x,1.14,2.53,light);
  const tail=new T.MeshStandardMaterial({color:0xb52028,emissive:0xff1825,emissiveIntensity:.8});
  for(const x of [-.85,.85])box(.55,.25,.12,x,1.14,-2.53,tail);
+ if(color===undefined&&SF.random.chance(.28)){const spare=new T.Mesh(new T.CylinderGeometry(.48,.48,.24,10),tires);spare.rotation.x=Math.PI/2;spare.position.set(0,1.35,-2.72);mesh.add(spare);}
  const car={mesh,pos:mesh.position,speed:0,heading:0,velocity:new T.Vector3(),wheels,occupied:false,police:false,box};
  group.add(mesh);all.push(car);return car;
 }

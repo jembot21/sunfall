@@ -14,7 +14,7 @@ function stage(){
  }else if(name==='downtown'){
   p.setStage(-2,0);
   const traffic=SF.traffic.cars[0];traffic.pos.set(5,0,-5);traffic.axis='z';traffic.mesh.rotation.y=0;
-  camera.position.set(7,5.5,17);camera.lookAt(0,1.5,-3);
+  camera.position.set(7,5.5,17);camera.lookAt(-2,7,-12);
  }else if(name==='chase'){
   p.setStage(0,0,car);car.heading=Math.PI;car.mesh.rotation.y=Math.PI;
   SF.police.wanted=3;

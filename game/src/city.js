@@ -15,7 +15,8 @@
       const floors = rng.rangeInt(2, 5) + rng.rangeInt(0, Math.floor(downtown * 21));
       const h = floors * 4;
       const x = cx + dx, z = cz + dz;
-      buildings.push({x, z, w, d, h, district: downtown > .35 ? 1 : 0, color: rng.pick(C.colors.buildings)});
+      const district = downtown > .35 ? 1 : 0;
+      buildings.push({x, z, w, d, h, district, color: district && rng.chance(.22) ? 0x587d88 : rng.pick(C.colors.buildings)});
       colliders.push({x, z, r: Math.hypot(w, d) / 2});
     }
   }

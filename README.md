@@ -8,6 +8,7 @@ Sunfall is an original browser crime-and-driving adventure set in Solano Bay. Da
 ## What's new
 - Seeded screenshot scenes provide repeatable chase, downtown, coast, and ending views.
 - Live minimap and police heat polish make objectives and pursuit easier to follow.
+- This polish pass uses seed 9 for the screenshot scenes and labels the minimap with Solano Bay.
 
 ## Play
 Open `game/index.html` in desktop Chrome, or run `node serve.ts` and visit http://localhost:8080. Click the start screen to begin. Continue uses the local browser save when available; a new game starts Dario with $80.

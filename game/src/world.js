@@ -84,6 +84,8 @@
   oceanTexture.encoding = T.sRGBEncoding;
   const ocean = plane(2000, 3000, coastX - 1000, -.22, 0,
     new T.MeshStandardMaterial({map: oceanTexture, transparent: true, opacity: .94, roughness: .32, metalness: .25}));
+  plane(5, half * 2 + 180, coastX + 2.5, -.005, 0,
+    new T.MeshStandardMaterial({color: 0x9a704d, roughness: .95}));
   const waveCanvas = document.createElement('canvas'); waveCanvas.width = waveCanvas.height = 128;
   const wctx = waveCanvas.getContext('2d');
   wctx.strokeStyle = '#bfe4d5'; wctx.lineWidth = 1;
