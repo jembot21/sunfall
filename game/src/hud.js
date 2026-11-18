@@ -1,8 +1,9 @@
 (function(SF){
 'use strict';
 const health=document.getElementById('healthFill'),cash=document.getElementById('cash'),wanted=document.getElementById('wanted'),mission=document.getElementById('mission'),state=document.getElementById('state'),stateText=document.getElementById('stateText'),map=document.getElementById('map'),ctx=map.getContext('2d');
+cash.style.textAlign='right';cash.style.minWidth='8ch';cash.style.textShadow='0 1px 3px #0009';
 let banner=0;
-function showBanner(t,x){mission.textContent=t+'  |  '+x;banner=5;}
+function showBanner(t,x){const text=t+'  |  '+x;if(mission.textContent!==text&&SF.audio)SF.audio.click();mission.textContent=text;banner=5;}
 function draw(){
  const w=map.width,h=map.height,b=SF.world.bounds;
  const min=Math.min(b.min,SF.world.coastX)-24,max=b.max+24,s=Math.min(w,h)/(max-min);

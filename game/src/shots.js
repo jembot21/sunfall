@@ -10,7 +10,7 @@ function stage(){
  if(name==='coast'){
   const x=SF.world.bounds.min+4;
   p.setStage(x,0,car);car.heading=0;car.mesh.rotation.y=0;
-  camera.position.set(x+17,7,19);camera.lookAt(x-13,3,-12);
+  camera.position.set(x+14,5.5,16);camera.lookAt(x-13,3,-12);
  }else if(name==='downtown'){
   p.setStage(-2,0);
   const traffic=SF.traffic.cars[0];traffic.pos.set(5,0,-5);traffic.axis='z';traffic.mesh.rotation.y=0;

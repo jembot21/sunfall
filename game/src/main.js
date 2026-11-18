@@ -1,5 +1,6 @@
 (function(SF){
 'use strict';
+console.info('Sunfall — Solano Bay ready.');
 let last=performance.now();
 function loop(now){
  const dt=Math.max(0,Math.min(1/20,(now-last)/1000));last=now;

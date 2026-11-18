@@ -13,7 +13,7 @@
   scene.fog = new T.Fog(C.colors.sky, 220, 1250);
   const camera = new T.PerspectiveCamera(62, innerWidth / innerHeight, .1, 1800);
   camera.position.set(0, 24, 32);
-  const hemi = new T.HemisphereLight(0xffd6b2, 0x39464b, .82); scene.add(hemi);
+  const hemi = new T.HemisphereLight(0xffd6b2, 0x49463f, .82); scene.add(hemi);
   const sunLight = new T.DirectionalLight(0xffbc72, 2.25);
   sunLight.position.set(-120, 90, -110); sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(2048, 2048);

@@ -32,7 +32,7 @@ function move(car,dt,throttle,steer,brake){
  if(hit){const impact=Math.abs(car.speed);car.speed*=-.18;car.velocity.multiplyScalar(-.15);if(impact>9&&SF.player&&SF.player.inCar===car){SF.player.hurt(impact*.45);SF.peds.scare(car.pos.x,car.pos.z,35);}}
  car.mesh.rotation.y=car.heading;for(const w of car.wheels)w.rotation.x+=car.speed*dt;
 }
-for(let i=0;i<16;i++){const c=createCar();c.pos.set(i===0?5:SF.random.pick(SF.world.roadCenters)+6,0,i===0?18:SF.random.range(-580,580));parked.push(c);}
+for(let i=0;i<16;i++){const c=createCar();c.pos.set(i===0?5:SF.random.pick(SF.world.roadCenters)+6,0,i===0?18:SF.random.range(-580,580));c.heading=SF.random.range(-.04,.04);c.mesh.rotation.y=c.heading;parked.push(c);}
 SF.vehicles={group,parked,all,createCar,move,update(dt){const p=SF.player,c=p&&p.inCar;if(!c)return;const input=SF.input;move(c,dt,(input.isDown('forward')?1:0)-(input.isDown('back')?1:0),(input.isDown('left')?1:0)-(input.isDown('right')?1:0),input.isDown('handbrake'));
  for(const other of all){if(other===c||!other.mesh.visible)continue;if(c.pos.distanceTo(other.pos)<4.2&&Math.abs(c.speed)>5){const impact=Math.abs(c.speed);c.speed*=-.25;c.velocity.multiplyScalar(-.25);other.speed*=.3;p.hurt(impact*.25);SF.police.addHeat(1);SF.peds.scare(c.pos.x,c.pos.z,40);c.pos.addScaledVector(new T.Vector3(Math.sin(c.heading),0,Math.cos(c.heading)),-2);break;}}
 }};

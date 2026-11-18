@@ -5,6 +5,10 @@
 
 Sunfall is an original browser crime-and-driving adventure set in Solano Bay. Dario Venn begins with $80, a borrowed car, and one delivery. Work jobs across a sunset city, avoid the police, and decide whether to keep the roads quiet or make your own opportunities.
 
+## What's new
+- Seeded screenshot scenes provide repeatable chase, downtown, coast, and ending views.
+- Live minimap and police heat polish make objectives and pursuit easier to follow.
+
 ## Play
 Open `game/index.html` in desktop Chrome, or run `node serve.ts` and visit http://localhost:8080. Click the start screen to begin. Continue uses the local browser save when available; a new game starts Dario with $80.
 

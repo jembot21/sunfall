@@ -11,10 +11,12 @@
     forward: ['KeyW', 'ArrowUp'], back: ['KeyS', 'ArrowDown'],
     left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
     run: ['ShiftLeft', 'ShiftRight'], use: ['KeyE'], fire: ['KeyF', 'Mouse0'],
-    aim: ['Mouse2'], handbrake: ['Space'], pause: ['Escape', 'KeyP'], start: ['Enter']
+    aim: ['Mouse2'], handbrake: ['Space'], pause: ['Escape', 'KeyP'], start: ['Enter', 'NumpadEnter']
   };
   const start = document.getElementById('start'), pause = document.getElementById('pause');
   const host = document.getElementById('game');
+  const startHint = start.querySelector?.('p');
+  if (startHint) startHint.textContent = 'Click or press Enter to play';
   const mouse = {x: 0, y: 0, dx: 0, dy: 0};
   let started = false, paused = false;
   function clear() { keys.clear(); edges.clear(); mouse.dx = mouse.dy = 0; }
@@ -33,7 +35,7 @@
     if (!Object.values(mapping).some(list => list.includes(event.code))) return;
     event.preventDefault();
     if (event.repeat || keys.has(event.code)) return;
-    if (event.code === 'Enter' && !started) { begin(); return; }
+    if (mapping.start.includes(event.code) && !started) { begin(); return; }
     if (mapping.pause.includes(event.code)) {
       setPaused(!paused); keys.add(event.code); edges.add(event.code); return;
     }

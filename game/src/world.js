@@ -38,8 +38,8 @@
     rect(-extent, c - grid.road / 2 - 4, extent * 2, grid.road + 8, '#b4a38c');
   }
   for (const c of roadCenters) {
-    rect(c - grid.road / 2, -extent, grid.road, extent * 2, '#343941');
-    rect(-extent, c - grid.road / 2, extent * 2, grid.road, '#343941');
+    rect(c - grid.road / 2, -extent, grid.road, extent * 2, '#30353c');
+    rect(-extent, c - grid.road / 2, extent * 2, grid.road, '#30353c');
   }
   for (const c of roadCenters) {
     for (let k = -half; k < half; k += 9) {

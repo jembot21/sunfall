@@ -12,7 +12,8 @@
     for (const dx of [-16, 16]) for (const dz of [-16, 16]) {
       if (rng.chance(.10)) continue;
       const w = rng.range(15, 24), d = rng.range(15, 24);
-      const h = rng.range(8, 22) + downtown * rng.range(20, 85);
+      const floors = rng.rangeInt(2, 5) + rng.rangeInt(0, Math.floor(downtown * 21));
+      const h = floors * 4;
       const x = cx + dx, z = cz + dz;
       buildings.push({x, z, w, d, h, district: downtown > .35 ? 1 : 0, color: rng.pick(C.colors.buildings)});
       colliders.push({x, z, r: Math.hypot(w, d) / 2});

@@ -31,5 +31,6 @@ function countFiles(dir: string): number {
   return readdirSync(dir, { withFileTypes: true }).reduce((count, item) =>
     count + (item.isDirectory() ? countFiles(resolve(dir, item.name)) : Number(item.isFile())), 0);
 }
-const files = countFiles(resolve(output, 'game')) + countFiles(resolve(output, 'screenshots'));
-console.log(`Copied ${files} files to ${output}; dossier.json ${dossier.byteLength} bytes.`);
+const screenshots = countFiles(resolve(output, 'screenshots'));
+const files = countFiles(resolve(output, 'game')) + screenshots;
+console.log(`Copied ${files} files to ${output}, including ${screenshots} screenshots; dossier.json ${dossier.byteLength} bytes.`);
