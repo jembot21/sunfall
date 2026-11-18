@@ -1,43 +1,25 @@
-/**
- * Sunfall — Open-World Crime Action in Solano Bay
- * Entry builder for make.fun bounty (gta6-01).
- *
- * Copies the game and screenshot assets into the destination output directory,
- * generates the make.fun verification dossier, and reports summary stats.
- */
-
-import { cpSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+// Node 22 entry point: stage the offline game and its dossier in MAKEFUN_OUTPUT_DIR.
+import { cpSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const repoRoot = fileURLToPath(new URL('.', import.meta.url));
-const outDir = resolve(process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
-
-mkdirSync(outDir, { recursive: true });
-
-// Copy game/ and screenshots/ recursively into output directory
-cpSync(join(repoRoot, 'game'), join(outDir, 'game'), { recursive: true });
-cpSync(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'), { recursive: true });
-
-// Generate dossier against standard make.fun caps
-const dossierBytes = buildDossier(outDir, {
+const root = resolve(dirname(fileURLToPath(import.meta.url)));
+const output = resolve(process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
+mkdirSync(output, { recursive: true });
+cpSync(join(root, 'game'), join(output, 'game'), { recursive: true });
+cpSync(join(root, 'screenshots'), join(output, 'screenshots'), { recursive: true });
+const dossier = buildDossier(output, {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
   game_max_files: 993,
   game_max_bytes: 50331648,
 });
-
-writeFileSync(join(outDir, 'dossier.json'), dossierBytes);
-
-// Count output files for verification summary
-function countFiles(dir: string): number {
-  let count = 0;
-  for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
-    if (entry.isFile()) count++;
-  }
-  return count;
+writeFileSync(join(output, 'dossier.json'), dossier);
+function countFiles(dir) {
+  return readdirSync(dir).reduce((sum, name) => {
+    const path = join(dir, name);
+    return sum + (statSync(path).isDirectory() ? countFiles(path) : 1);
+  }, 0);
 }
-
-const fileCount = countFiles(outDir);
-console.log(`Sunfall built: ${fileCount} files, ${dossierBytes.byteLength} dossier bytes; output directory: ${outDir}`);
+console.log(`Staged ${countFiles(output)} files to ${output}; dossier ${Buffer.byteLength(dossier)} bytes.`);

@@ -1,128 +1,22 @@
-/**
- * Sunfall — Persistence & Game State Save Subsystem
- *
- * Persists player progression to browser localStorage:
- * - Cash reserves, story mission milestone index, and narrative completion.
- * - Weapon unlock states (9mm pistol).
- * - Player settings (audio master mute).
- * - Safe error handling against disabled storage or private browsing mode.
- * - SF.save: { data, load(), store(), reset() }.
- */
-
-(function () {
+(function (SF) {
   'use strict';
-
-  var SF = window.SF = window.SF || {};
-
-  var STORAGE_KEY = 'sunfall_save_v1';
-  var SAVE_VERSION = 1;
-
-  var defaultData = {
-    version: SAVE_VERSION,
-    cash: 80,
-    storyIndex: 0,
-    storyDone: false,
-    pistolUnlocked: false,
-    settings: {
-      muted: false
-    }
+  const key = 'sunfall-save-v2', version = 2, defaults = { version, cash: 80, storyDone: 0, pistolUnlocked: false, settings: { mute: false } };
+  const data = Object.assign({}, defaults);
+  const save = { data,
+    load() {
+      try { const parsed = JSON.parse(localStorage.getItem(key) || 'null'); if (parsed && typeof parsed === 'object' && parsed.version === version) { Object.assign(data, parsed); data.settings = Object.assign({}, defaults.settings, parsed.settings); } } catch (_) {}
+      if (SF.player) { SF.player.cash = Math.max(0, Number(data.cash) || 80); SF.player.pistolUnlocked = !!data.pistolUnlocked; }
+      if (SF.missions) SF.missions.loadProgress(data.storyDone || 0);
+      if (SF.audio) SF.audio.mute(!!data.settings.mute);
+      return data;
+    },
+    store() {
+      data.version = version; data.cash = SF.player ? SF.player.cash : data.cash; data.storyDone = SF.missions ? SF.missions.storyDone : data.storyDone;
+      data.pistolUnlocked = SF.player ? SF.player.pistolUnlocked : data.pistolUnlocked;
+      try { localStorage.setItem(key, JSON.stringify(data)); } catch (_) {}
+      return data;
+    },
+    reset() { Object.assign(data, JSON.parse(JSON.stringify(defaults))); try { localStorage.removeItem(key); } catch (_) {} if (SF.player) { SF.player.cash = 80; SF.player.pistolUnlocked = false; SF.player.health = 100; } if (SF.missions) SF.missions.reset(); }
   };
-
-  var currentData = JSON.parse(JSON.stringify(defaultData));
-
-  function load() {
-    try {
-      if (typeof window === 'undefined' || !window.localStorage) {
-        return currentData;
-      }
-
-      var raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        var parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object' && parsed.version === SAVE_VERSION) {
-          currentData.cash = (typeof parsed.cash === 'number') ? parsed.cash : defaultData.cash;
-          currentData.storyIndex = (typeof parsed.storyIndex === 'number') ? parsed.storyIndex : defaultData.storyIndex;
-          currentData.storyDone = !!parsed.storyDone;
-          currentData.pistolUnlocked = !!parsed.pistolUnlocked;
-          if (parsed.settings) {
-            currentData.settings.muted = !!parsed.settings.muted;
-          }
-
-          // Apply loaded data to active runtime modules
-          if (SF.player) {
-            SF.player.cash = currentData.cash;
-            SF.player.pistolUnlocked = currentData.pistolUnlocked;
-          }
-
-          if (SF.missions) {
-            SF.missions.storyIndex = currentData.storyIndex;
-            SF.missions.storyDone = currentData.storyDone;
-          }
-
-          if (SF.audio && SF.audio.setMuted) {
-            SF.audio.setMuted(currentData.settings.muted);
-          }
-        }
-      }
-    } catch (e) {
-      // Storage unavailable or blocked
-    }
-    return currentData;
-  }
-
-  function store() {
-    try {
-      if (typeof window === 'undefined' || !window.localStorage) {
-        return false;
-      }
-
-      // Collect live state
-      if (SF.player) {
-        currentData.cash = SF.player.cash;
-        currentData.pistolUnlocked = SF.player.pistolUnlocked;
-      }
-
-      if (SF.missions) {
-        currentData.storyIndex = SF.missions.storyIndex;
-        currentData.storyDone = SF.missions.storyDone;
-      }
-
-      if (SF.audio && SF.audio.isMuted) {
-        currentData.settings.muted = SF.audio.isMuted();
-      }
-
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentData));
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function reset() {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem(STORAGE_KEY);
-      }
-      currentData = JSON.parse(JSON.stringify(defaultData));
-
-      if (SF.player) {
-        SF.player.cash = defaultData.cash;
-        SF.player.pistolUnlocked = defaultData.pistolUnlocked;
-      }
-
-      if (SF.missions) {
-        SF.missions.storyIndex = defaultData.storyIndex;
-        SF.missions.storyDone = defaultData.storyDone;
-      }
-    } catch (e) {
-      // Storage unavailable
-    }
-  }
-
-  SF.save = {
-    get data() { return currentData; },
-    load: load,
-    store: store,
-    reset: reset
-  };
-})();
+  SF.save = save;
+})(window.SF);

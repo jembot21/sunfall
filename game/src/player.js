@@ -1,596 +1,88 @@
-/**
- * Sunfall — Dario Venn Character & Player Controller
- *
- * Implements:
- * - Dario character model: sunset floral shirt, jeans, animated limbs, holster/pistol.
- * - Fluid on-foot locomotion (walk, sprint, jump/dodge) relative to 3rd-person camera.
- * - Vehicle hijacking and entering/exiting with speed gating.
- * - Combat system: melee punch and unlockable pistol hitscan tracer line.
- * - Interaction zones: $25 healing food stand and safehouse saving.
- * - Death & arrest cycle with hospital/police station respawns and cash forfeiture.
- * - SF.player namespace.
- */
-
-(function () {
+(function (SF) {
   'use strict';
-
-  var SF = window.SF = window.SF || {};
-
-  var mesh = new THREE.Group();
-  mesh.name = 'player_dario';
-
-  var pos = mesh.position;
-  pos.set(8.0, 0, 20.0); // Starting on Solano Beach boulevard
-
-  var health = 100;
-  var armor = 100;
-  var cash = 80; // Starts with $80
-  var pistolUnlocked = false;
-  var pistolEquipped = false;
-  var inCar = false;
-  var currentCar = null;
-
-  var camYaw = 0;
-  var camPitch = 0.22;
-  var camDist = 6.2;
-  var camTarget = new THREE.Vector3();
-
-  var moveSpeed = 0;
-  var charHeading = 0;
-  var isPunching = false;
-  var punchTimer = 0;
-  var shootCooldown = 0;
-  var animTimer = 0;
-  var isRespawning = false;
-
-  // Interaction locations
-  var FOOD_STAND_POS = { x: 0, z: 0 };
-  var SAFEHOUSE_POS = { x: 14.0, z: 32.0 };
-  var HOSPITAL_POS = { x: 180.0, z: -90.0 };
-  var POLICE_STATION_POS = { x: 270.0, z: 90.0 };
-
-  // Limbs references for walking/punching animation
-  var torso, head, armL, armR, legL, legR, gunMesh, muzzleFlash;
-
-  function buildDarioModel() {
-    // Torso in sunset coral-orange floral shirt
-    mesh.scale.setScalar(1.08);
-    var torsoGeom = new THREE.BoxGeometry(0.62, 0.68, 0.36);
-    var shirtMat = new THREE.MeshStandardMaterial({
-      color: 0xff7034, // Sunset orange
-      roughness: 0.65
-    });
-    torso = new THREE.Mesh(torsoGeom, shirtMat);
-    torso.position.y = 1.08;
-    torso.castShadow = true;
-    mesh.add(torso);
-
-    // Head
-    var headGeom = new THREE.SphereGeometry(0.22, 10, 10);
-    var skinMat = new THREE.MeshStandardMaterial({ color: 0xd8a373, roughness: 0.7 });
-    head = new THREE.Mesh(headGeom, skinMat);
-    head.position.y = 1.54;
-    head.castShadow = true;
-    mesh.add(head);
-
-    // Hair
-    var hairGeom = new THREE.BoxGeometry(0.42, 0.18, 0.44);
-    var hairMat = new THREE.MeshStandardMaterial({ color: 0x1d1a24, roughness: 0.9 });
-    var hair = new THREE.Mesh(hairGeom, hairMat);
-    hair.position.set(0, 1.66, -0.04);
-    mesh.add(hair);
-
-    // Arms
-    var armGeom = new THREE.BoxGeometry(0.18, 0.65, 0.18);
-    armL = new THREE.Mesh(armGeom, skinMat);
-    armL.position.set(-0.42, 0.92, 0);
-    armL.castShadow = true;
-    mesh.add(armL);
-
-    armR = new THREE.Mesh(armGeom, skinMat);
-    armR.position.set(0.42, 0.92, 0);
-    armR.castShadow = true;
-    mesh.add(armR);
-
-    // Pistol in right hand
-    var gunGeom = new THREE.BoxGeometry(0.1, 0.16, 0.32);
-    var gunMat = new THREE.MeshStandardMaterial({ color: 0x222228, metalness: 0.8, roughness: 0.3 });
-    gunMesh = new THREE.Mesh(gunGeom, gunMat);
-    gunMesh.position.set(0, -0.32, 0.16);
-    gunMesh.visible = false;
-    armR.add(gunMesh);
-
-    // Muzzle flash point
-    var flashGeom = new THREE.SphereGeometry(0.15, 6, 6);
-    var flashMat = new THREE.MeshBasicMaterial({ color: 0xffe277 });
-    muzzleFlash = new THREE.Mesh(flashGeom, flashMat);
-    muzzleFlash.position.set(0, -0.32, 0.36);
-    muzzleFlash.visible = false;
-    armR.add(muzzleFlash);
-
-    // Legs in denim blue
-    var legGeom = new THREE.BoxGeometry(0.24, 0.82, 0.28);
-    var jeansMat = new THREE.MeshStandardMaterial({ color: 0x2a3b5c, roughness: 0.85 });
-    legL = new THREE.Mesh(legGeom, jeansMat);
-    legL.position.set(-0.16, 0.41, 0);
-    legL.castShadow = true;
-    mesh.add(legL);
-
-    legR = new THREE.Mesh(legGeom, jeansMat);
-    legR.position.set(0.16, 0.41, 0);
-    legR.castShadow = true;
-    mesh.add(legR);
-  }
-
-  buildDarioModel();
-
-  if (SF.render && SF.render.scene) {
-    SF.render.scene.add(mesh);
-  }
-
-  // Keyboard shortcut listener for Q (equip/holster pistol) and R (eat meal / save)
-  window.addEventListener('keydown', function (e) {
-    if (e.code === 'KeyQ') {
-      if (pistolUnlocked) {
-        pistolEquipped = !pistolEquipped;
-        if (gunMesh) gunMesh.visible = pistolEquipped;
-        if (SF.hud && SF.hud.showBanner) {
-          SF.hud.showBanner('Weapon', pistolEquipped ? '9mm Pistol Drawn' : 'Pistol Holstered');
-        }
+  const mesh = SF.peds.figure(0xe98b50); mesh.scale.set(1.08, 1.12, 1.08); SF.render.scene.add(mesh);
+  mesh.position.copy(SF.vehicles.parked[0].pos).add(new THREE.Vector3(4, 0, 0));
+  SF.vehicles.resolve(mesh.position, 0.7);
+  const gun = SF.vehicles.box(mesh, 0.18, 0.22, 0.65, -0.48, 1.2, 0.35, 0x24252c); gun.visible = false;
+  let cooldown = 0, recovery = 0, phase = 0;
+  const tracers = [];
+  const player = { mesh, pos: mesh.position, health: 100, cash: 80, inCar: null, pistolUnlocked: false, equipped: false, recovering: false, yaw: Math.PI, pitch: 0.3, speed: 0,
+    addCash(n) { this.cash = Math.max(0, Math.round(this.cash + n)); },
+    hurt(n) { if (this.recovering) return; this.health = Math.max(0, this.health - n); if (!this.health) this.respawn('wasted'); },
+    respawn(reason) {
+      if (this.recovering) return;
+      this.recovering = true; recovery = 3; this.reason = reason; this.addCash(-Math.min(150, this.cash));
+      if (this.inCar) { this.inCar.occupied = false; this.inCar.speed = 0; this.inCar = null; }
+      this.mesh.visible = true; this.pos.copy(reason === 'busted' ? new THREE.Vector3(99, 0, 46) : new THREE.Vector3(-85, 0, 46));
+      SF.vehicles.resolve(this.pos, 0.7); SF.police.clear();
+      if (SF.missions) SF.missions.fail(reason === 'busted' ? 'Impounded. Try the route again.' : 'Take a breath. Try again.');
+    },
+    attack() {
+      if (cooldown > 0 || this.inCar || this.recovering) return;
+      const armed = this.equipped && this.pistolUnlocked; cooldown = armed ? 0.3 : 0.55;
+      if (SF.audio) SF.audio[armed ? 'shot' : 'punch']();
+      const direction = new THREE.Vector3(-Math.sin(this.yaw), -Math.sin(this.pitch) * 0.2, -Math.cos(this.yaw)).normalize();
+      const origin = this.pos.clone().add(new THREE.Vector3(0, 1.4, 0));
+      let range = armed ? 100 : 3.4, target = null;
+      const candidates = SF.peds.people.filter(p => p.down <= 0).map(p => ({ pos: p.pos, radius: 0.9, ped: p })).concat(SF.vehicles.all.map(c => ({ pos: c.pos, radius: 2.7, car: c })));
+      for (const b of SF.city.colliders) candidates.push({ pos: new THREE.Vector3(b.x, 0, b.z), radius: b.r });
+      for (const t of candidates) {
+        const dx = t.pos.x - origin.x, dz = t.pos.z - origin.z, along = dx * direction.x + dz * direction.z;
+        if (along < 0 || along > range) continue;
+        const side = Math.abs(dx * direction.z - dz * direction.x);
+        if (side < t.radius + (armed ? 0 : 0.8)) { range = along; target = t; }
       }
-    } else if (e.code === 'KeyR') {
-      handleInteractR();
-    }
-  }, false);
-
-  function handleInteractR() {
-    if (inCar) return;
-
-    // Check food stand
-    var fdx = pos.x - FOOD_STAND_POS.x;
-    var fdz = pos.z - FOOD_STAND_POS.z;
-    if (Math.sqrt(fdx * fdx + fdz * fdz) < 6.0) {
-      if (cash >= 25) {
-        cash -= 25;
-        health = 100;
-        if (SF.hud && SF.hud.showBanner) {
-          SF.hud.showBanner('Solano Diner', 'Ate a Cuban Sandwich ($25). Health fully restored!');
-        }
-      } else {
-        if (SF.hud && SF.hud.showBanner) {
-          SF.hud.showBanner('Solano Diner', 'Need $25 for a meal!');
-        }
+      if (armed) {
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([origin, origin.clone().addScaledVector(direction, range)]), new THREE.LineBasicMaterial({ color: 0xffdc87 }));
+        SF.render.scene.add(line); tracers.push({ line, life: 0.09 }); SF.police.addHeat(2); SF.peds.scare(this.pos.x, this.pos.z, 65);
       }
-      return;
-    }
-
-    // Check safehouse
-    var sdx = pos.x - SAFEHOUSE_POS.x;
-    var sdz = pos.z - SAFEHOUSE_POS.z;
-    if (Math.sqrt(sdx * sdx + sdz * sdz) < 7.0) {
-      if (SF.save && SF.save.store) {
-        SF.save.store();
-        if (SF.hud && SF.hud.showBanner) {
-          SF.hud.showBanner('Solano Hideout', 'Game progress saved successfully.');
-        }
+      if (target && (target.ped || target.car)) {
+        if (target.ped) target.ped.down = 7;
+        if (target.car) target.car.speed *= 0.6;
+        if (!armed) SF.police.addHeat(1); SF.peds.scare(this.pos.x, this.pos.z, 25);
       }
-    }
-  }
-
-  function hurt(amount) {
-    if (isRespawning) return;
-
-    if (armor > 0) {
-      var armorAbsorb = Math.min(armor, amount * 0.7);
-      armor -= armorAbsorb;
-      amount -= armorAbsorb;
-    }
-
-    health = Math.max(0, health - amount);
-
-    if (health <= 0) {
-      respawn('wasted');
-    }
-  }
-
-  function addCash(amount) {
-    cash = Math.max(0, cash + amount);
-  }
-
-  function respawn(reason) {
-    if (isRespawning) return;
-    isRespawning = true;
-
-    // Exit vehicle if inside
-    if (inCar && currentCar) {
-      currentCar.isOccupied = false;
-      inCar = false;
-      currentCar = null;
-      mesh.visible = true;
-    }
-
-    // Cash penalty: up to $150
-    var penalty = Math.min(cash, 150);
-    cash -= penalty;
-
-    // Reset police heat
-    if (SF.police && SF.police.resetHeat) {
-      SF.police.resetHeat();
-    }
-
-    // Show overlay
-    var overlayId = (reason === 'busted') ? 'busted-overlay' : 'wasted-overlay';
-    var overlay = document.getElementById(overlayId);
-    if (overlay) {
-      overlay.classList.remove('hidden');
-    }
-
-    setTimeout(function () {
-      health = 100;
-      armor = 50;
-
-      if (reason === 'busted') {
-        pos.set(POLICE_STATION_POS.x, (SF.world && SF.world.groundY ? SF.world.groundY(POLICE_STATION_POS.x, POLICE_STATION_POS.z) : 0), POLICE_STATION_POS.z);
-      } else {
-        pos.set(HOSPITAL_POS.x, (SF.world && SF.world.groundY ? SF.world.groundY(HOSPITAL_POS.x, HOSPITAL_POS.z) : 0), HOSPITAL_POS.z);
-      }
-
-      if (overlay) {
-        overlay.classList.add('hidden');
-      }
-
-      isRespawning = false;
-    }, 2800);
-  }
-
-  function toggleVehicle() {
-    if (inCar) {
-      // Exit vehicle only if traveling at low speed
-      if (currentCar && Math.abs(currentCar.speed) < 7.0) {
-        inCar = false;
-        currentCar.isOccupied = false;
-
-        // Place Dario safely outside driver side door
-        var sideX = -Math.cos(currentCar.heading) * 2.2;
-        var sideZ = Math.sin(currentCar.heading) * 2.2;
-        pos.set(currentCar.pos.x + sideX, currentCar.pos.y, currentCar.pos.z + sideZ);
-
-        mesh.visible = true;
-        currentCar = null;
-      }
-    } else {
-      // Find nearest parked or stopped vehicle within interaction range
-      var bestCar = null;
-      var bestDist = 4.2;
-
-      // Check parked cars
-      if (SF.vehicles && SF.vehicles.parked) {
-        for (var i = 0; i < SF.vehicles.parked.length; i++) {
-          var pc = SF.vehicles.parked[i];
-          var pdx = pc.pos.x - pos.x;
-          var pdz = pc.pos.z - pos.z;
-          var pDist = Math.sqrt(pdx * pdx + pdz * pdz);
-          if (pDist < bestDist) {
-            bestDist = pDist;
-            bestCar = pc;
-          }
-        }
-      }
-
-      // Check traffic cars
-      if (!bestCar && SF.traffic && SF.traffic.cars) {
-        for (var t = 0; t < SF.traffic.cars.length; t++) {
-          var tc = SF.traffic.cars[t].car;
-          var tdx = tc.pos.x - pos.x;
-          var tdz = tc.pos.z - pos.z;
-          var tDist = Math.sqrt(tdx * tdx + tdz * tdz);
-          if (tDist < bestDist && Math.abs(tc.speed) < 5.0) {
-            bestDist = tDist;
-            bestCar = tc;
-          }
-        }
-      }
-
-      if (bestCar) enterVehicle(bestCar);
-    }
-  }
-
-  function enterVehicle(car) {
-    if (currentCar) currentCar.isOccupied = false;
-    currentCar = car;
-    inCar = !!car;
-    mesh.visible = !inCar;
-    if (car) {
-      car.isOccupied = true;
-      car.isParked = false;
-      pos.copy(car.pos);
-      charHeading = car.heading;
-    }
-  }
-
-  function performPunch() {
-    if (isPunching || inCar) return;
-    isPunching = true;
-    punchTimer = 0.28;
-
-    if (SF.audio && SF.audio.punch) {
-      SF.audio.punch();
-    }
-
-    // Hit detection forward
-    var fwdX = Math.sin(charHeading);
-    var fwdZ = Math.cos(charHeading);
-    var hitDist = 2.4;
-
-    // Check pedestrians
-    if (SF.peds && SF.peds.peds) {
-      for (var i = 0; i < SF.peds.peds.length; i++) {
-        var ped = SF.peds.peds[i];
-        var dx = ped.pos.x - pos.x;
-        var dz = ped.pos.z - pos.z;
-        var proj = dx * fwdX + dz * fwdZ;
-
-        if (proj > 0 && proj < hitDist) {
-          var perp = Math.abs(-dx * fwdZ + dz * fwdX);
-          if (perp < 1.4) {
-            ped.knockdown();
-            if (SF.police && SF.police.addHeat) SF.police.addHeat(40);
-            return;
-          }
-        }
-      }
-    }
-  }
-
-  function performPistolShot() {
-    if (shootCooldown > 0 || inCar || !pistolEquipped) return;
-    shootCooldown = 0.32;
-
-    if (SF.audio && SF.audio.shot) {
-      SF.audio.shot();
-    }
-
-    if (muzzleFlash) {
-      muzzleFlash.visible = true;
-      setTimeout(function () { muzzleFlash.visible = false; }, 60);
-    }
-
-    // Scare nearby pedestrians
-    if (SF.peds && SF.peds.scare) {
-      SF.peds.scare(pos.x, pos.z, 36.0);
-    }
-
-    // Tracer line
-    var startPos = new THREE.Vector3(pos.x, pos.y + 1.2, pos.z);
-    var aimDir = new THREE.Vector3(Math.sin(camYaw), -camPitch * 0.5, Math.cos(camYaw)).normalize();
-    var hitTarget = startPos.clone().add(aimDir.clone().multiplyScalar(45.0));
-
-    // Hitscan check against peds
-    if (SF.peds && SF.peds.peds) {
-      for (var p = 0; p < SF.peds.peds.length; p++) {
-        var ped = SF.peds.peds[p];
-        var pdx = ped.pos.x - pos.x;
-        var pdz = ped.pos.z - pos.z;
-        var dot = pdx * aimDir.x + pdz * aimDir.z;
-        if (dot > 0 && dot < 45.0) {
-          var perp = Math.abs(-pdx * aimDir.z + pdz * aimDir.x);
-          if (perp < 1.2) {
-            ped.knockdown();
-            hitTarget.set(ped.pos.x, ped.pos.y + 1.0, ped.pos.z);
-            if (SF.police && SF.police.addHeat) SF.police.addHeat(120);
-            break;
-          }
-        }
-      }
-    }
-
-    // Temporary tracer beam mesh
-    var tracerGeom = new THREE.BufferGeometry().setFromPoints([startPos, hitTarget]);
-    var tracerMat = new THREE.LineBasicMaterial({ color: 0xffdd44, linewidth: 2 });
-    var tracerLine = new THREE.Line(tracerGeom, tracerMat);
-    if (SF.render && SF.render.scene) {
-      SF.render.scene.add(tracerLine);
-      setTimeout(function () {
-        if (SF.render && SF.render.scene) SF.render.scene.remove(tracerLine);
-      }, 70);
-    }
-  }
-
-  function updateCamera(dt) {
-    var camera = SF.render ? SF.render.camera : null;
-    if (!camera) return;
-
-    // Mouse look rotation
-    if (SF.input && SF.input.mouse) {
-      var dx = SF.input.mouse.dx || 0;
-      var dy = SF.input.mouse.dy || 0;
-      var mouseSens = 0.0028;
-
-      camYaw -= dx * mouseSens;
-      camPitch = Math.max(-0.25, Math.min(0.85, camPitch + dy * mouseSens));
-    }
-
-    var targetPos = inCar && currentCar ? currentCar.pos : pos;
-
-    if (inCar && currentCar) {
-      // Smooth camera trailing behind car heading
-      var carHeading = currentCar.heading;
-      camTarget.lerp(new THREE.Vector3(targetPos.x, targetPos.y + 1.6, targetPos.z), 10.0 * dt);
-
-      var followDist = 8.2;
-      var cx = camTarget.x - Math.sin(camYaw) * followDist * Math.cos(camPitch);
-      var cz = camTarget.z - Math.cos(camYaw) * followDist * Math.cos(camPitch);
-      var cy = camTarget.y + Math.sin(camPitch) * followDist + 1.2;
-
-      camera.position.set(cx, Math.max(1.0, cy), cz);
-      camera.lookAt(camTarget.x, camTarget.y + 0.8, camTarget.z);
-    } else {
-      // Standard 3rd person orbit around Dario
-      camTarget.set(targetPos.x, targetPos.y + 1.4, targetPos.z);
-
-      var dist = camDist;
-      var ox = camTarget.x - Math.sin(camYaw) * dist * Math.cos(camPitch);
-      var oz = camTarget.z - Math.cos(camYaw) * dist * Math.cos(camPitch);
-      var oy = camTarget.y + Math.sin(camPitch) * dist + 0.6;
-
-      camera.position.set(ox, Math.max(0.5, oy), oz);
-      camera.lookAt(camTarget);
-    }
-  }
-
-  function update(dt) {
-    if (isRespawning) return;
-
-    var input = SF.input;
-
-    // Vehicle enter/exit edge trigger
-    if (input && (input.pressed('interact') || (input.pressed && input.pressed('jump') && inCar))) {
-      // E or F toggles vehicle
-    }
-    // We check raw interact trigger
-    if (input && input.pressed && input.pressed('interact')) {
-      toggleVehicle();
-    }
-
-    if (inCar && currentCar) {
-      // Vehicle driving controls
-      if (input.isDown('forward')) {
-        currentCar.accelerate(dt);
-      } else if (input.isDown('backward')) {
-        currentCar.reverse(dt);
-      }
-
-      if (input.isDown('left')) {
-        currentCar.steer(-1, dt);
-      } else if (input.isDown('right')) {
-        currentCar.steer(1, dt);
-      }
-
-      if (input.isDown('handbrake')) {
-        currentCar.handbrake(dt);
-      }
-
-      // Update Dario position to follow car
-      pos.copy(currentCar.pos);
-      charHeading = currentCar.heading;
-    } else {
-      // On-foot movement controls
-      var fwd = 0;
-      var right = 0;
-
-      if (input.isDown('forward')) fwd += 1;
-      if (input.isDown('backward')) fwd -= 1;
-      if (input.isDown('left')) right -= 1;
-      if (input.isDown('right')) right += 1;
-
-      var isMoving = (fwd !== 0 || right !== 0);
-      var isSprinting = input.isDown('sprint');
-      var targetSpeed = isMoving ? (isSprinting ? 11.5 : 6.0) : 0;
-
-      moveSpeed += (targetSpeed - moveSpeed) * 12.0 * dt;
-
-      if (isMoving) {
-        // Compute movement vector relative to camera yaw
-        var inputAngle = Math.atan2(right, fwd);
-        charHeading = camYaw + inputAngle;
-
-        var stepX = Math.sin(charHeading) * moveSpeed * dt;
-        var stepZ = Math.cos(charHeading) * moveSpeed * dt;
-
-        pos.x += stepX;
-        pos.z += stepZ;
-
-        // Limb swinging walk animation
-        animTimer += dt * (isSprinting ? 18.0 : 10.0);
-        var swing = Math.sin(animTimer) * 0.45;
-        if (armL) armL.rotation.x = -swing;
-        if (armR && !pistolEquipped) armR.rotation.x = swing;
-        if (legL) legL.rotation.x = swing;
-        if (legR) legR.rotation.x = -swing;
-      } else {
-        if (armL) armL.rotation.x *= 0.8;
-        if (armR && !pistolEquipped) armR.rotation.x *= 0.8;
-        if (legL) legL.rotation.x *= 0.8;
-        if (legR) legR.rotation.x *= 0.8;
-      }
-
-      mesh.rotation.y = charHeading;
-
-      // Ground clamping
-      if (SF.world && SF.world.groundY) {
-        pos.y = SF.world.groundY(pos.x, pos.z);
-      }
-
-      // Building collisions
-      if (SF.city && SF.city.colliders) {
-        var colls = SF.city.colliders;
-        var pRadius = 0.55;
-        for (var c = 0; c < colls.length; c++) {
-          var col = colls[c];
-          var cdx = pos.x - col.x;
-          var cdz = pos.z - col.z;
-          var minD = col.r + pRadius;
-          if (Math.abs(cdx) < minD && Math.abs(cdz) < minD) {
-            var dSq = cdx * cdx + cdz * cdz;
-            if (dSq < minD * minD && dSq > 0.0001) {
-              var d = Math.sqrt(dSq);
-              var push = minD - d;
-              pos.x += (cdx / d) * push;
-              pos.z += (cdz / d) * push;
-            }
-          }
-        }
-      }
-
-      // Combat attacks
-      if (input.pressed('shoot')) {
-        if (pistolEquipped) {
-          performPistolShot();
+      mesh.rotation.y = Math.atan2(direction.x, direction.z);
+    },
+    update(dt) {
+      cooldown = Math.max(0, cooldown - dt);
+      for (let i = tracers.length - 1; i >= 0; i--) if ((tracers[i].life -= dt) <= 0) { const t = tracers.splice(i, 1)[0]; SF.render.scene.remove(t.line); t.line.geometry.dispose(); t.line.material.dispose(); }
+      if (this.recovering) { recovery -= dt; if (recovery <= 0) { this.health = 100; this.recovering = false; this.reason = ''; } this.camera(dt); return; }
+      const input = SF.input;
+      if (input.pressed('equip') && this.pistolUnlocked) this.equipped = !this.equipped;
+      gun.visible = this.equipped;
+      if (input.pressed('interact')) {
+        if (this.inCar) {
+          if (Math.abs(this.inCar.speed) < 3) { const c = this.inCar; this.pos.copy(c.pos).add(new THREE.Vector3(Math.cos(c.heading) * 3.6, 0, -Math.sin(c.heading) * 3.6)); SF.vehicles.resolve(this.pos, 0.7); c.occupied = false; this.inCar = null; this.mesh.visible = true; }
+          else SF.hud.showBanner('SLOW DOWN', 'Stop before getting out.');
         } else {
-          performPunch();
+          const available = SF.vehicles.all.filter(c => c.mesh.visible && c.kind !== 'police' && !c.occupied && Math.abs(c.speed) < 3 && c.pos.distanceTo(this.pos) < 6).sort((a, b) => a.pos.distanceTo(this.pos) - b.pos.distanceTo(this.pos));
+          if (available.length) { this.inCar = available[0]; this.inCar.occupied = true; if (!SF.vehicles.parked.includes(this.inCar)) SF.vehicles.parked.push(this.inCar); this.mesh.visible = false; }
         }
       }
-
-      // Punch cooldown / animation
-      if (isPunching) {
-        punchTimer -= dt;
-        if (armR) armR.rotation.x = -1.2;
-        if (punchTimer <= 0) {
-          isPunching = false;
-          if (armR) armR.rotation.x = 0;
-        }
+      if (this.inCar) { this.pos.copy(this.inCar.pos); this.speed = Math.abs(this.inCar.speed); }
+      else {
+        const x = Number(input.isDown('right')) - Number(input.isDown('left')), z = Number(input.isDown('back')) - Number(input.isDown('forward'));
+        const length = Math.hypot(x, z), speed = input.isDown('run') ? SF.CONFIG.physics.runSpeed : SF.CONFIG.physics.walkSpeed;
+        this.speed = length ? speed : 0;
+        if (length) { const dx = (x * Math.cos(this.yaw) + z * Math.sin(this.yaw)) / length, dz = (-x * Math.sin(this.yaw) + z * Math.cos(this.yaw)) / length; this.pos.x += dx * speed * dt; this.pos.z += dz * speed * dt; mesh.rotation.y = Math.atan2(dx, dz); }
+        SF.vehicles.resolve(this.pos, 0.7); phase += dt * this.speed; this.pos.y = length ? Math.abs(Math.sin(phase)) * 0.09 : 0;
+        if (input.pressed('shoot') && !input.isDown('handbrake')) this.attack();
       }
-
-      if (shootCooldown > 0) {
-        shootCooldown -= dt;
+      if (SF.world.isWater(this.pos.x, this.pos.z)) this.hurt(30 * dt);
+      if (input.pressed('service')) {
+        if (this.pos.distanceTo(SF.missions.food) < 12) {
+          if (this.cash >= 25 && this.health < 100) { this.addCash(-25); this.health = Math.min(100, this.health + 65); SF.hud.showBanner('HOT MEAL', 'Back on your feet. $25'); }
+          else SF.hud.showBanner('FOOD STAND', this.health >= 100 ? 'You are already healthy.' : 'A healing meal costs $25.');
+        } else if (this.pos.distanceTo(SF.missions.home) < 14) { SF.save.store(); SF.hud.showBanner('SAVED', 'Your place in Solano Bay is safe.'); }
       }
+      this.camera(dt);
+    },
+    camera(dt) {
+      if (SF.shots && SF.shots.active) return;
+      const radius = this.inCar ? 12 : 7, height = this.inCar ? 4.8 : 3.2;
+      const target = this.pos.clone().add(new THREE.Vector3(Math.sin(this.yaw) * radius * Math.cos(this.pitch), height + Math.sin(this.pitch) * 6, Math.cos(this.yaw) * radius * Math.cos(this.pitch)));
+      const cam = SF.render.camera; cam.position.lerp(target, 1 - Math.exp(-dt * 9)); cam.lookAt(this.pos.x, this.pos.y + 1.4, this.pos.z);
     }
-
-    updateCamera(dt);
-  }
-
-  SF.player = {
-    mesh: mesh,
-    pos: pos,
-    get position() { return pos; },
-    get health() { return health; },
-    set health(h) { health = Math.max(0, Math.min(100, h)); },
-    get armor() { return armor; },
-    set armor(a) { armor = Math.max(0, Math.min(100, a)); },
-    get cash() { return cash; },
-    set cash(c) { cash = Math.max(0, c); },
-    get inCar() { return inCar; },
-    get currentCar() { return currentCar; },
-    get speed() { return moveSpeed; },
-    get heading() { return charHeading; },
-    enterVehicle: enterVehicle,
-    get pistolUnlocked() { return pistolUnlocked; },
-    set pistolUnlocked(u) { pistolUnlocked = !!u; },
-    get pistolEquipped() { return pistolEquipped; },
-    update: update,
-    addCash: addCash,
-    hurt: hurt,
-    respawn: respawn,
-    toggleVehicle: toggleVehicle
   };
-})();
+  SF.player = player;
+})(window.SF);
