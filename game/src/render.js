@@ -1,29 +1,39 @@
-'use strict';
-// Renderer, golden-hour atmosphere, chase camera and a single sun shadow map.
-SF.initRender=function(){
- const r=SF.renderer=new THREE.WebGLRenderer({canvas:document.getElementById('game'),antialias:true});
- r.setPixelRatio(Math.min(devicePixelRatio,1.5));r.setSize(innerWidth,innerHeight);
- r.outputEncoding=THREE.sRGBEncoding;r.toneMapping=THREE.ACESFilmicToneMapping;r.toneMappingExposure=.95;
- r.shadowMap.enabled=true;r.shadowMap.type=THREE.PCFSoftShadowMap;
- const scene=SF.scene=new THREE.Scene();scene.fog=new THREE.Fog(0xd38b65,140,480);
- SF.camera=new THREE.PerspectiveCamera(61,innerWidth/innerHeight,.2,1200);
- scene.add(new THREE.HemisphereLight(0xffcfab,0x354c60,.8));
- const sun=SF.sun=new THREE.DirectionalLight(0xffb66e,2.1);sun.castShadow=true;
- sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.left=-65;sun.shadow.camera.right=65;sun.shadow.camera.top=65;sun.shadow.camera.bottom=-65;sun.shadow.camera.near=1;sun.shadow.camera.far=240;sun.shadow.bias=-.001;sun.shadow.normalBias=.06;scene.add(sun,sun.target);
- const sky=new THREE.Mesh(new THREE.SphereGeometry(800,24,12),new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,vertexShader:'varying vec3 p; void main(){p=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',fragmentShader:'varying vec3 p;void main(){float t=clamp(p.y/700.,0.,1.);gl_FragColor=vec4(mix(vec3(.98,.36,.12),mix(vec3(.48,.42,.48),vec3(.035,.29,.39),t),sqrt(t)),1.);}'}));scene.add(sky);
- SF.camTarget=new THREE.Vector3();SF.camDesired=new THREE.Vector3();SF.camLook=new THREE.Vector3();
- addEventListener('resize',function(){r.setSize(innerWidth,innerHeight);SF.camera.aspect=innerWidth/innerHeight;SF.camera.updateProjectionMatrix();});
-};
-SF.updateCamera=function(dt){
- const p=SF.player;let yaw=SF.input.yaw;
- if(SF.car){if(!document.pointerLockElement||SF.time-(SF.input.lastLook||0)>.8)SF.input.yaw+=SF.angle(SF.car.angle-SF.input.yaw)*Math.min(1,dt*3);yaw=SF.input.yaw;}
- const distance=SF.shotView?SF.shotView.distance:SF.car?10.5:6.5, pitch=SF.input.pitch;
- if(SF.shotView)yaw=(SF.car?SF.car.angle:0)+SF.shotView.yaw;
- SF.camDesired.set(p.x-Math.sin(yaw)*distance,(SF.shotView?SF.shotView.height:2.3+Math.sin(pitch)*distance),p.z-Math.cos(yaw)*distance);
- // Keep the camera out of building footprints by shortening its boom.
- for(let i=0;i<4&&SF.solid(SF.camDesired.x,SF.camDesired.z,.3);i++){SF.camDesired.x=(SF.camDesired.x+p.x)*.5;SF.camDesired.z=(SF.camDesired.z+p.z)*.5;SF.camDesired.y+=1;}
- SF.camera.position.lerp(SF.camDesired,1-Math.exp(-dt*7));SF.camLook.set(p.x,1.5,p.z);SF.camera.lookAt(SF.camLook);
- const fov=61+(SF.car?Math.abs(SF.car.speed)*.25:0);if(Math.abs(SF.camera.fov-fov)>.05){SF.camera.fov=fov;SF.camera.updateProjectionMatrix();}
- SF.sun.position.set(p.x-70,95,p.z+45);SF.sun.target.position.set(p.x,0,p.z);
- if(SF.ocean)SF.ocean.material.uniforms.time.value=SF.time;
-};
+// Renderer contract: SF.render = {renderer, scene, camera, sunLight, update(dt), resize()}.
+// The world follows the player by retargeting the single low-sun shadow camera.
+(function (SF) {
+  'use strict';
+  const T = THREE, C = SF.CONFIG;
+  const renderer = new T.WebGLRenderer({antialias: true, powerPreference: 'high-performance'});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, C.perf.pixelRatio));
+  renderer.setSize(innerWidth, innerHeight); renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = T.PCFSoftShadowMap; renderer.toneMapping = T.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.08; renderer.outputEncoding = T.sRGBEncoding;
+  document.getElementById('game').appendChild(renderer.domElement);
+  const scene = new T.Scene(); scene.background = new T.Color(C.colors.sky);
+  scene.fog = new T.Fog(C.colors.sky, 220, 1250);
+  const camera = new T.PerspectiveCamera(62, innerWidth / innerHeight, .1, 1800);
+  camera.position.set(0, 24, 32);
+  const hemi = new T.HemisphereLight(0xffd6b2, 0x39464b, .82); scene.add(hemi);
+  const sunLight = new T.DirectionalLight(0xffbc72, 2.25);
+  sunLight.position.set(-120, 90, -110); sunLight.castShadow = true;
+  sunLight.shadow.mapSize.set(2048, 2048);
+  Object.assign(sunLight.shadow.camera, {left: -80, right: 80, top: 80, bottom: -80, near: 1, far: 420});
+  sunLight.shadow.bias = -.0006; scene.add(sunLight, sunLight.target);
+  const disc = new T.Mesh(new T.CircleGeometry(50, 64),
+    new T.MeshStandardMaterial({color: 0xffbd68, emissive: 0xffa347,
+      emissiveIntensity: 1.4, fog: false, toneMapped: false}));
+  disc.position.set(-800, 180, -680); scene.add(disc);
+  function resize() {
+    camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  }
+  SF.render = {renderer, scene, camera, sunLight, update(dt) {
+    const position = SF.player && SF.player.position;
+    if (position) {
+      sunLight.target.position.copy(position); sunLight.position.copy(position).add(new T.Vector3(-120, 90, -110));
+    }
+    disc.quaternion.copy(camera.quaternion);
+    renderer.render(scene, camera);
+  }, resize};
+  window.addEventListener('resize', resize);
+})(window.SF);

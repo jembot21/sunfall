@@ -1,13 +1,33 @@
+(function(SF){
 'use strict';
-// Throttled DOM readouts and a fully local top-down canvas minimap.
-SF.initHUD=function(){SF.ui={};const ids=['missionName','objective','timer','stars','cash','health','heat','speed','hint','notice','district','bust','bustWrap','crosshair'];for(const id of ids)SF.ui[id]=document.getElementById(id);SF.map=document.getElementById('map').getContext('2d');SF.mapBackground=document.createElement('canvas');SF.mapBackground.width=380;SF.mapBackground.height=380;const c=SF.mapBackground.getContext('2d');c.fillStyle='#426968';c.fillRect(0,0,380,380);c.fillStyle='#38636b';c.fillRect(0,0,28,380);c.fillStyle='#b5a47d';c.fillRect(28,0,12,380);c.fillStyle='#a6ab91';for(const r of SF.C.roads){const a=(r+245)*.78;c.fillRect(a-5,0,10,380);c.fillRect(40,a-5,340,10);}c.fillStyle='#6e8580';for(const b of SF.boxes)c.fillRect((b.x-b.w+245)*.78,(b.z-b.d+245)*.78,b.w*1.56,b.d*1.56);};
-SF.mapDot=function(x,z,color,r){const c=SF.map;c.fillStyle=color;c.beginPath();c.arc((x+245)*.78,(z+245)*.78,r,0,Math.PI*2);c.fill();};
-SF.updateHUD=function(){const u=SF.ui,m=SF.missions,p=SF.player;
- u.missionName.textContent=SF.story<5?SF.missionNames[SF.story]:'SOLANO BAY / INDEPENDENT CONTRACTOR';u.objective.textContent=m.objective;
- u.timer.textContent=m.running?'TIME '+Math.ceil(m.timer)+'s':'';u.stars.textContent='★'.repeat(SF.wanted)+'☆'.repeat(5-SF.wanted);u.cash.textContent='$'+Math.floor(SF.cash).toLocaleString('en-US');u.health.style.width=SF.clamp(SF.health,0,100)+'%';u.health.style.background=SF.health<30?'#ff896f':'#a9d3ad';u.heat.textContent=SF.wanted?(SF.seen?'PURSUIT / IN SIGHT':'SEARCHING / STAY OUT OF SIGHT'):'DARIO VENN / '+Math.ceil(SF.health)+' HP';u.speed.innerHTML=SF.car?Math.round(Math.abs(SF.car.speed)*3.6)+'<small>KM/H</small>':'';
- u.hint.textContent=SF.car?'WASD DRIVE · SPACE BRAKE · E EXIT':SF.dist(p,SF.C.food)<12?'R BUY MEAL / $25':SF.dist(p,SF.C.hideout)<13?'R SAVE AT SAFEHOUSE':'E ENTER CAR · '+(p.gun?'CLICK FIRE · Q HOLSTER':'CLICK / F PUNCH · SHIFT SPRINT');
- u.notice.textContent=SF.time<SF.noticeUntil?SF.notice:'';u.bustWrap.style.display=SF.bust>.01?'block':'none';u.bust.style.width=SF.bust*100+'%';u.crosshair.style.display=SF.car?'none':'block';u.district.textContent=p.x<-180?(p.z<-60?'THE MARINA':'COAST ROAD'):p.x>48&&p.z<20?'DOWNTOWN':p.z>120?'SOUTH QUAY':p.x>48?'AFTERGLOW DISTRICT':'PALM HEIGHTS';
- const c=SF.map;c.drawImage(SF.mapBackground,0,0);for(let i=0;i<SF.cars.length;i++){const a=SF.cars[i];if(a.active&&a.kind==='police'&&a!==SF.car)SF.mapDot(a.x,a.z,'#ff7970',4);}
- SF.mapDot(SF.C.food.x,SF.C.food.z,'#9ee5ac',4);SF.mapDot(SF.C.hideout.x,SF.C.hideout.z,'#c9e7d9',4);SF.mapDot(m.target.x,m.target.z,'#ffcf76',7);
- c.save();c.translate((p.x+245)*.78,(p.z+245)*.78);c.rotate(-(SF.car?SF.car.angle:p.angle));c.fillStyle='#ffffff';c.strokeStyle='#19343a';c.lineWidth=2;c.beginPath();c.moveTo(0,10);c.lineTo(-6,-6);c.lineTo(0,-3);c.lineTo(6,-6);c.closePath();c.fill();c.stroke();c.restore();
-};
+const health=document.getElementById('healthFill'),cash=document.getElementById('cash'),wanted=document.getElementById('wanted'),mission=document.getElementById('mission'),state=document.getElementById('state'),stateText=document.getElementById('stateText'),map=document.getElementById('map'),ctx=map.getContext('2d');
+let banner=0;
+function showBanner(t,x){mission.textContent=t+'  |  '+x;banner=5;}
+function draw(){
+ const w=map.width,h=map.height,b=SF.world.bounds;
+ const min=Math.min(b.min,SF.world.coastX)-24,max=b.max+24,s=Math.min(w,h)/(max-min);
+ const px=x=>(x-min)*s,pz=z=>(z-min)*s;
+ ctx.fillStyle='#142024';ctx.fillRect(0,0,w,h);
+ ctx.fillStyle='#204b59';ctx.fillRect(0,0,px(SF.world.coastX),h);
+ ctx.strokeStyle='#59615e';ctx.lineWidth=Math.max(2,SF.CONFIG.city.road*s);
+ for(const c of SF.world.roadCenters){
+  ctx.beginPath();ctx.moveTo(px(c),pz(b.min));ctx.lineTo(px(c),pz(b.max));ctx.stroke();
+  ctx.beginPath();ctx.moveTo(px(b.min),pz(c));ctx.lineTo(px(b.max),pz(c));ctx.stroke();
+ }
+ function dot(x,z,color,r){ctx.fillStyle=color;ctx.beginPath();ctx.arc(px(x),pz(z),r,0,Math.PI*2);ctx.fill();}
+ const m=SF.missions&&SF.missions.current;
+ if(m&&m.target)dot(m.target.x,m.target.z,'#ffc14d',5);
+ dot(SF.world.coastX+20,0,'#55d68a',3);dot(0,18,'#fff',3);
+ if(SF.police&&SF.police.wanted>0)SF.police.units.forEach(c=>{if(c.mesh.visible)dot(c.pos.x,c.pos.z,'#ef4444',3);});
+ const p=SF.player;
+ if(p){ctx.save();ctx.translate(px(p.position.x),pz(p.position.z));ctx.rotate(-(p.inCar?p.inCar.heading:p.mesh.rotation.y));ctx.fillStyle='#fff';ctx.strokeStyle='#142024';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,7);ctx.lineTo(-4,-4);ctx.lineTo(0,-2);ctx.lineTo(4,-4);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();}
+}
+SF.hud={showBanner,clearBanner(){banner=0;mission.textContent='';},refreshSaveButtons(){},update(dt){
+ const p=SF.player;if(!p)return;
+ health.style.width=Math.max(0,p.health)+'%';cash.textContent='$'+Math.floor(p.cash).toLocaleString('en-US');
+ const stars=Math.ceil(SF.police.wanted);wanted.textContent='★'.repeat(stars)+'☆'.repeat(5-stars);
+ if(banner>0){banner-=dt;if(banner<=0)mission.textContent='';}
+ if(SF.police.state==='busted'||p.health<=0){state.classList.remove('hidden');stateText.textContent=SF.police.state==='busted'?'BUSTED':'WASTED';}else state.classList.add('hidden');
+ draw();
+}};
+})(window.SF);

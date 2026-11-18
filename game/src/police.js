@@ -1,32 +1,3 @@
-'use strict';
-// Witnessed crimes, pooled pursuit units, visibility-based heat decay and detention.
-SF.heat=0;SF.bust=0;SF.policeSpawn=0;SF.seen=false;
-SF.crime=function(amount,witnessRequired){
- if(witnessRequired){let seen=false;for(let i=0;i<SF.cars.length;i++){const c=SF.cars[i];if(c.active&&c.kind==='police'&&SF.dist(c,SF.player)<80&&SF.lineClear(c.x,c.z,SF.player.x,SF.player.z))seen=true;}for(let i=0;i<SF.peds.length;i++){const p=SF.peds[i];if(p.active&&p.health>0&&p.officer&&SF.dist(p,SF.player)<45&&SF.lineClear(p.x,p.z,SF.player.x,SF.player.z))seen=true;}if(!seen)return;}
- // A brief reporting delay prevents a single collision or shot from counting every frame.
- if(SF.time<(SF.crimeCooldown||0))return;SF.crimeCooldown=SF.time+1.5;
- SF.wanted=SF.clamp(SF.wanted+amount,0,5);SF.heat=18;SF.frighten(SF.player.x,SF.player.z);
-};
-SF.clearWanted=function(){SF.wanted=0;SF.bust=0;SF.heat=0;for(let i=0;i<SF.cars.length;i++){const c=SF.cars[i];if(c.kind==='police'&&c!==SF.car){c.active=false;c.mesh.visible=false;}}for(let i=90;i<100;i++)SF.peds[i].active=false;};
-SF.updatePolice=function(dt){
- if(!SF.wanted){SF.bust=Math.max(0,SF.bust-dt*.3);return;}
- SF.policeSpawn-=dt;let count=0,close=false,seen=false;
- for(let i=0;i<SF.cars.length;i++){const c=SF.cars[i];if(c.kind!=='police'||!c.active||c===SF.car)continue;count++;const d=SF.dist(c,SF.player);
- SF.aiDrive(c,dt,true);c.light.material.emissive.setHex(Math.floor(SF.time*7)%2?0xff2222:0x2255ff);
- if(d<90&&SF.lineClear(c.x,c.z,SF.player.x,SF.player.z))seen=true;
- if(d<8&&(SF.car?Math.abs(SF.car.speed)<3:true))close=true;
- if(d>180&&count>SF.wanted){c.active=false;c.mesh.visible=false;}
- }
- if(SF.policeSpawn<=0&&count<Math.min(6,SF.wanted+1)){
- SF.policeSpawn=4;for(let i=0;i<SF.cars.length;i++){const c=SF.cars[i];if(c.kind!=='police'||c.active)continue;
- let ix=0,iz=0;for(let j=1;j<7;j++){if(Math.abs(SF.C.roads[j]-SF.player.x)<Math.abs(SF.C.roads[ix]-SF.player.x))ix=j;if(Math.abs(SF.C.roads[j]-SF.player.z)<Math.abs(SF.C.roads[iz]-SF.player.z))iz=j;}
- iz=SF.clamp(iz+(SF.random()>.5?1:-1),0,6);c.x=SF.C.roads[ix]-3;c.z=SF.C.roads[iz];c.angle=Math.atan2(SF.player.x-c.x,SF.player.z-c.z);c.speed=8;c.active=true;c.health=100;c.initialized=false;c.mesh.visible=true;break;
- }
- }
- for(let i=0;i<SF.peds.length;i++){const p=SF.peds[i];if(p.active&&p.officer&&p.health>0&&SF.dist(p,SF.player)<35&&SF.lineClear(p.x,p.z,SF.player.x,SF.player.z)){seen=true;if(SF.dist(p,SF.player)<4&&!SF.car)close=true;}}
- // Officers dismount from nearby slowed patrols, reusing the reserve citizen slots.
- if((SF.frame%60)===0){for(let i=90;i<96;i++){const p=SF.peds[i],c=SF.cars[34+i-90];if(!p.active&&c&&c.active&&SF.dist(c,SF.player)<28){p.x=c.x+2.5;p.z=c.z;p.health=100;p.active=true;p.homeX=p.x;p.homeZ=p.z;}}}
- SF.seen=seen;if(seen)SF.heat=18;else SF.heat-=dt;
- if(SF.heat<=0){SF.wanted--;SF.heat=12;if(!SF.wanted){SF.clearWanted();SF.message('Heat lost. Keep it clean.',4);}}
- SF.bust=SF.clamp(SF.bust+(close?dt*.24:-dt*.18),0,1);if(SF.bust>=1)SF.respawn('BUSTED');
-};
+(function(SF){'use strict';const T=THREE,group=new T.Group(),units=[];SF.render.scene.add(group);function spawn(){const c=SF.vehicles.createCar(0x20252d);c.police=true;c.mesh.traverse(o=>{if(o.material&&o.material.color)o.material.color.set(0x20252d);});const bar=new T.Mesh(new T.BoxGeometry(1.15,.18,.32),new T.MeshStandardMaterial({color:0xff3344,emissive:0xff2233,emissiveIntensity:2}));bar.position.y=2.55;c.mesh.add(bar);c.light=bar;c.pos.set(SF.random.pick(SF.world.roadCenters),0,SF.random.range(-600,600));units.push(c);return c;}
+let wanted=0,bustedMeter=0,cool=0;for(let i=0;i<5;i++)spawn();SF.police={get wanted(){return wanted;},set wanted(v){wanted=Math.max(0,Math.min(5,v));},bustedMeter,state:'idle',units,addHeat(n){wanted=Math.min(5,wanted+n);cool=0;},update(dt){const pl=SF.player;if(!pl)return;const target=pl.position;let seen=false;for(const c of units){c.mesh.visible=wanted>0; if(!c.mesh.visible)continue;const dx=target.x-c.pos.x,dz=target.z-c.pos.z,d=Math.hypot(dx,dz);if(d<260){seen=true;const desired=Math.atan2(dx,dz),diff=Math.atan2(Math.sin(desired-c.heading),Math.cos(desired-c.heading));SF.vehicles.move(c,dt,1,Math.max(-1,Math.min(1,diff*2)),false);if(d<5&&Math.abs(pl.speed||0)<3){bustedMeter+=dt*(1+(wanted*.15));this.state='busting';}else bustedMeter=Math.max(0,bustedMeter-dt*.7);if(c.light){const color=Math.sin(performance.now()/1000*Math.PI*2*SF.CONFIG.police.lightbarBlinkHz)>0?0xff3344:0x3366ff;c.light.material.color.set(color);c.light.material.emissive.set(color);}}}
+if(wanted&& !seen){cool+=dt;if(cool>10){wanted--;cool=0;}}if(!wanted)bustedMeter=0;if(bustedMeter>=4){this.state='busted';bustedMeter=0;pl.hurt(999);wanted=0;}else if(this.state==='busting')this.state='pursuit';}};})(window.SF);

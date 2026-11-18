@@ -1,5 +1,2 @@
-'use strict';
-// Deterministic city layout; simulation decisions use the same inexpensive generator.
-SF.seed=1709;
-SF.random=function(){ SF.seed=(Math.imul(SF.seed,1664525)+1013904223)|0; return (SF.seed>>>0)/4294967296; };
-SF.range=function(a,b){return a+(b-a)*SF.random();};
+// Deterministic random helpers; call reseed(seed) before staging a repeatable scene.
+(function(SF){let state=0x51f15e;SF.random={reseed(seed){state=seed>>>0;},next(){state=(state+0x6D2B79F5)>>>0;let t=state;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296;},range(a,b){return a+(b-a)*this.next();},pick(a){return a[Math.floor(this.next()*a.length)];},shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(this.next()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}return arr;},chance(p){return this.next()<p;}};})(window.SF);

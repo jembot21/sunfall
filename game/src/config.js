@@ -1,11 +1,2 @@
-'use strict';
-// Shared constants and the single game namespace. Distances are metres.
-window.SF = { C: { size: 440, roads: [-192,-128,-64,0,64,128,192], roadWidth: 15,
-  hospital: {x:-192,z:64}, station:{x:64,z:128}, hideout:{x:-192,z:-128},
-  food: {x:-64,z:64}, start:{x:-4,z:75} }, time:0, frame:0, mode:'title',
-  cash:80, story:0, health:100, wanted:0, car:null, notice:'', noticeUntil:0,
-  settings:{sound:true,sensitivity:1}, temp:new THREE.Object3D() };
-SF.clamp = function(v,a,b){ return Math.max(a,Math.min(b,v)); };
-SF.dist = function(a,b){ return Math.hypot(a.x-b.x,a.z-b.z); };
-SF.angle = function(a){ return Math.atan2(Math.sin(a),Math.cos(a)); };
-SF.message = function(s,seconds){ SF.notice=s; SF.noticeUntil=SF.time+(seconds||5); };
+// Shared global contracts: CONFIG is immutable; later classic scripts extend window.SF.
+(function(){const SF=window.SF=window.SF||{};SF.CONFIG=Object.freeze({city:{block:90,road:18,blocks:14,west:-720},colors:{asphalt:0x383b40,sidewalk:0x8b8076,sand:0xc49562,ocean:0x286e79,sky:0xf08a55,sunset:0xff9a3c,buildings:[0x665d60,0x8f6960,0x716d68,0xa17a63,0x585d60]},physics:{walk:8,run:13,car:28,gravity:22},police:{lightbarBlinkHz:4},wanted:[0,2,5,9,15],payouts:{delivery:500,escape:1200},perf:{pixelRatio:1.5,maxDrawCalls:160}});})();

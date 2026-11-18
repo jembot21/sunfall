@@ -1,24 +1,54 @@
-// Simulation smoke test with real vendored Three.js; no WebGL renderer or browser is simulated.
-// Run from repository root: node tests/smoke.cjs
-const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const THREE=require(process.cwd()+'/game/vendor/three.min.js');
-const context={console,THREE,Math,Float32Array,window:null,localStorage:{setItem(k,v){this[k]=v},getItem(k){return this[k]||null}},document:{createElement(){return {width:512,height:96,getContext(){return {fillRect(){},fillText(){}}}}}}};context.window=context;vm.createContext(context);
-for(const f of ['config','random','world','city','vehicles','traffic','peds','police','player','missions','save'])vm.runInContext(fs.readFileSync('game/src/'+f+'.js','utf8'),context,{filename:f+'.js'});
-const S=context.SF;S.scene=new THREE.Scene();S.input={keys:{},yaw:0,take(){return false}};S.audio={tone(){}};
-S.createCity();S.initVehicles();S.initPeds();S.initPlayer();S.initMissions();
-assert(!S.solid(S.luxury.x,S.luxury.z,1.2),'luxury car must be accessible');assert(!S.solid(S.player.x,S.player.z,.4),'spawn clear');
-assert.equal(S.cars.length,40);assert.equal(S.peds.length,100);
-S.player.x=S.starter.x;S.player.z=S.starter.z;S.enterExit();assert.equal(S.car,S.starter);
-S.time=2;S.driveCar(S.car,.05,1,0,false);assert(S.car.speed>0);S.car.speed=0;S.enterExit();assert(!S.car);assert(S.player.mesh.visible);
-S.car=S.starter;S.player.x=S.missions.target.x;S.player.z=S.missions.target.z;S.missions.update(.016);assert.equal(S.story,1);assert(S.player.gun);
-S.missions.retry();S.player.x=-192;S.player.z=-128;S.missions.update(.016);assert.equal(S.missions.stage,1);assert(S.wanted>=2);
-S.player.x=128;S.player.z=64;S.missions.update(.016);assert.equal(S.story,2);
-S.missions.retry();S.player.x=64;S.player.z=64;S.missions.update(.016);assert(S.missions.running);
-for(const t of S.racePoints){S.player.x=t.x;S.player.z=t.z;S.missions.update(.016);}assert.equal(S.story,3);
-S.missions.retry();S.car=S.luxury;S.missions.update(.016);assert.equal(S.missions.stage,1);S.player.x=-128;S.player.z=192;S.missions.update(.016);assert.equal(S.story,4);
-S.missions.retry();assert.equal(S.wanted,4);S.clearWanted();S.player.x=-192;S.player.z=-128;S.missions.update(.016);assert.equal(S.story,5);
-S.missions.retry();S.player.x=-192;S.player.z=0;S.missions.update(.016);assert(S.missions.running);S.player.x=192;S.player.z=-64;S.missions.update(.016);assert.equal(S.missions.side,1);
-S.save();S.cash=0;S.load();assert(S.cash>0);
-S.story=0;S.missions.retry();S.time=100;S.crime(3,false);assert.equal(S.wanted,3);for(let i=0;i<600;i++){S.time+=1/60;S.frame=i;S.updateTraffic(1/60);S.updatePolice(1/60);S.updateVehicles(1/60);S.updatePeds(1/60);S.updatePlayer(1/60);}assert(S.cars.some(c=>c.kind==='police'&&c.active));
-let draws=0;S.scene.traverse(o=>{if(o.isMesh||o.isLine)draws++});
-console.log('PASS: actual Three.js scene construction; accessible spawn/lot; enter/exit; physics; all five missions; side job; save/load; 600 integrated AI/combat frames. Scene render objects:',draws);
+const fs = require('fs');
+const path = require('path');
+const root = path.resolve(__dirname, '..');
+let failed = false;
+function pass(s){ console.log('PASS '+s); }
+function fail(s){ console.log('FAIL '+s); failed = true; }
+const html = fs.readFileSync(path.join(root,'game/index.html'),'utf8');
+const hud = fs.readFileSync(path.join(root,'game/src/hud.js'),'utf8');
+const mapId = hud.match(/map\s*=\s*document\.getElementById\(['"]([^'"]+)['"]\)/)?.[1];
+const canvases = [...html.matchAll(/<canvas\b[^>]*\bid=["']([^"']+)["'][^>]*>/g)];
+if(mapId && canvases.some(m=>m[1]===mapId))pass('minimap canvas matches HUD id '+mapId);
+else fail('missing minimap canvas expected by HUD');
+const scripts = [...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map(m=>m[1]);
+for(const src of scripts){const file=path.join(root,'game',src);if(fs.existsSync(file))pass('script exists '+src);else fail('missing script '+src);}
+for(const file of fs.readdirSync(path.join(root,'game/src')).filter(f=>f.endsWith('.js'))){try{new Function(fs.readFileSync(path.join(root,'game/src',file),'utf8'));pass('syntax '+file);}catch(e){fail('syntax '+file+' '+e.message);}}
+function gameFiles(dir){for(const f of fs.readdirSync(dir)){const p=path.join(dir,f),s=fs.statSync(p);if(s.isDirectory()&&f!=='vendor')gameFiles(p);else if(s.isFile()&&/\.(html|js|json)$/.test(f)){if(/https?:\/\//.test(fs.readFileSync(p,'utf8')))fail('offline URL '+path.relative(root,p));}}}
+gameFiles(path.join(root,'game'));const shots=JSON.parse(fs.readFileSync(path.join(root,'shots.json'),'utf8'));if(shots.length===4)pass('shots.json has 4 shots');else fail('shots.json count');
+// Exercise the real game modules with Three geometry and a recording canvas.
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const Three = require('../game/vendor/three.min.js');
+for(const shot of ['downtown','chase','coast','end']){
+ try{
+  const calls=[],frames=[],elements=new Map();
+  const ctx=new Proxy({}, {get:(o,k)=>o[k]||(o[k]=(...args)=>{calls.push([k,...args]);if(k==='createLinearGradient')return {addColorStop(){}};})});
+  function element(){return {width:220,height:220,style:{},textContent:'',classList:{add(){},remove(){},toggle(){}},addEventListener(){},appendChild(){},getContext:()=>ctx};}
+  const document={getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},createElement:element,addEventListener(){}};
+  class Renderer{constructor(){this.domElement=element();this.shadowMap={};this.capabilities={getMaxAnisotropy:()=>1};}setPixelRatio(){}setSize(){}render(scene,camera){scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);}}
+  const sandbox={THREE:{...Three,WebGLRenderer:Renderer},document,location:{search:'?shot='+shot},URLSearchParams,innerWidth:1280,innerHeight:720,performance:{now:()=>0},localStorage:{getItem:()=>null,setItem(){}},requestAnimationFrame:f=>frames.push(f),setTimeout(){},addEventListener(){},console};
+  sandbox.window=sandbox;vm.createContext(sandbox);
+  for(const src of scripts.filter(s=>!s.includes('vendor/')))vm.runInContext(fs.readFileSync(path.join(root,'game',src),'utf8'),sandbox,{filename:src});
+  frames.shift()(0);frames.shift()(16);
+  const sf=sandbox.SF;
+  assert.equal(sandbox.__SHOT_READY,true);
+  assert(calls.some(c=>c[0]==='stroke'),'road grid drawn');
+  assert(calls.some(c=>c[0]==='rotate'),'player arrow drawn');
+  assert(calls.filter(c=>c[0]==='arc').every(c=>c.slice(1).every(Number.isFinite)),'finite minimap coordinates');
+  assert(sf.render.scene.children.some(c=>c.geometry?.type==='CircleGeometry'),'circular sun');
+  function inFrame(pos){const p=pos.clone().add(new Three.Vector3(0,1,0)).project(sf.render.camera);return Math.abs(p.x)<1&&Math.abs(p.y)<1&&p.z>-1&&p.z<1;}
+  assert(inFrame(sf.player.position),'player in camera frame');
+  if(shot==='chase'){
+   assert.equal(elements.get('wanted').textContent,'★★★☆☆');
+   assert.equal(sf.police.units.filter(c=>c.mesh.visible).length,2);
+   assert(sf.police.units.slice(0,2).every(c=>inFrame(c.pos)),'both police in frame');
+  }
+  if(shot==='coast'){assert(sf.player.inCar);assert(sf.world.isRoad(sf.player.position.x,sf.player.position.z));}
+  if(shot==='downtown')assert(inFrame(sf.traffic.cars[0].pos),'traffic in frame');
+  if(shot==='end'){assert.equal(sf.player.cash,1240);assert.equal(elements.get('mission').textContent,'');assert(sf.missions.storyDone);assert.equal(sf.missions.current,null);}
+  sf.random.reseed(42);const a=sf.random.shuffle([1,2,3,4,5]);sf.random.reseed(42);assert.deepEqual(a,sf.random.shuffle([1,2,3,4,5]));assert.equal(new Set(a).size,5);
+  sandbox.localStorage.getItem=()=>JSON.stringify({version:999,cash:9999});sf.save.load();assert.equal(sf.save.data.cash,80);
+  pass('runtime staging, minimap, sun, RNG and save '+shot);
+ }catch(e){fail('runtime '+shot+' '+e.stack);}
+}
+process.exitCode=failed?1:0;

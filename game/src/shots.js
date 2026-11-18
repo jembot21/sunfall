@@ -1,33 +1,36 @@
+(function(SF){
 'use strict';
-// Presentation staging only: pooled citizens, road traffic and real pursuit AI remain live.
-SF.stageShot=function(name){
- if(!['chase','downtown','coast','end'].includes(name))return;
- SF.begin(false,false);
- const coast=name==='coast',end=name==='end',chase=name==='chase';
- const x=coast?-195.2:end?-195.2:60.8,z=coast?8:end?-102:-78;
- function place(c,x,z,a,speed){c.x=x;c.z=z;c.angle=a;c.speed=speed;c.initialized=false;c.mesh.position.set(x,0,z);c.mesh.rotation.y=a;}
- SF.car=SF.starter;SF.starter.stolen=true;SF.player.mesh.visible=false;
- place(SF.car,x,z,0,chase?23:12);SF.player.x=x;SF.player.z=z;SF.input.yaw=0;
- // Initialize a straight lane in the existing graph; subsequent junctions use normal AI.
- let n=0;for(let i=0;i<SF.cars.length&&n<6;i++){
- const c=SF.cars[i];if(c.kind!=='traffic')continue;
- const opposite=n%2===1,offset=[25,40,59,-42,85,-67][n];
- place(c,x+(opposite?6.4:0),z+offset,opposite?Math.PI:0,opposite?11:14);
- c.initialized=true;c.nodeX=coast||end?0:4;c.nodeZ=SF.clamp(Math.round((c.z+192)/64),0,6);c.dir=opposite?2:0;c.tx=c.x;c.tz=opposite?-192:192;n++;
+const q=new URLSearchParams(location.search),name=q.get('shot');
+if(!['coast','downtown','chase','end'].includes(name))return;
+SF.random.reseed(Number(q.get('seed')||1));
+SF.shots={active:true,name};
+function stage(){
+ const p=SF.player,camera=SF.render.camera,car=SF.vehicles.parked[0];
+ SF.police.wanted=0;SF.police.units.forEach(c=>{c.mesh.visible=false;});
+ if(name==='coast'){
+  const x=SF.world.bounds.min+4;
+  p.setStage(x,0,car);car.heading=0;car.mesh.rotation.y=0;
+  camera.position.set(x+17,7,19);camera.lookAt(x-13,3,-12);
+ }else if(name==='downtown'){
+  p.setStage(-2,0);
+  const traffic=SF.traffic.cars[0];traffic.pos.set(5,0,-5);traffic.axis='z';traffic.mesh.rotation.y=0;
+  camera.position.set(7,5.5,17);camera.lookAt(0,1.5,-3);
+ }else if(name==='chase'){
+  p.setStage(0,0,car);car.heading=Math.PI;car.mesh.rotation.y=Math.PI;
+  SF.police.wanted=3;
+  SF.police.units.slice(0,2).forEach((c,i)=>{
+   c.pos.set(i===0?-3:3,0,9+i*6);c.heading=Math.PI;c.mesh.rotation.y=Math.PI;c.mesh.visible=true;
+   const color=i===0?0xff3344:0x3366ff;c.light.material.color.set(color);c.light.material.emissive.set(color);
+  });
+  camera.position.set(12,8,-20);camera.lookAt(0,1,6);
+ }else{
+  p.setStage(0,18);p.mesh.rotation.y=Math.PI/2;
+  SF.missions.enterFreeRoam();p.addCash(1240-p.cash);
+  camera.position.set(-11,4.5,26);camera.lookAt(0,1.3,18);
  }
- for(let i=0;i<18;i++){
- const p=SF.peds[i];p.x=x+(i%2?13.7:-7.3);p.z=z-16+Math.floor(i/2)*8;p.homeX=p.x;p.homeZ=p.z;p.tx=p.x;p.tz=p.z+10;p.fear=0;
- }
- if(end){SF.story=5;SF.cash=5080;SF.missions.retry();}
- else{SF.story=0;SF.missions.retry();SF.missions.update(0);}
- if(chase){
- SF.crime(3,false);
- // Ask the police system to activate its own pooled pursuit cars, then stage behind us.
- for(let i=0;i<2;i++){SF.policeSpawn=0;SF.updatePolice(0);}
- n=0;for(let i=0;i<SF.cars.length;i++){const c=SF.cars[i];if(c.kind==='police'&&c.active){place(c,x+(n?4.5:0),z-11-n*8,0,24);n++;}}
- SF.policeSpawn=8;
- }
- SF.shotView=chase?{distance:17,height:3.1,yaw:.32}:coast?{distance:12,height:4.4,yaw:.35}:end?{distance:21,height:9,yaw:1.15}:{distance:13,height:4.5,yaw:-.38};
- SF.camera.position.set(x-Math.sin(SF.shotView.yaw)*SF.shotView.distance,SF.shotView.height,z-Math.cos(SF.shotView.yaw)*SF.shotView.distance);
- SF.paintPeds();SF.updateCamera(0);SF.updateHUD();SF.message('',0);
-};
+ document.getElementById('start').classList.add('hidden');
+ SF.hud.update(0);SF.render.update(0);window.__SHOT_READY=true;
+}
+// Main boots synchronously after this script; stage before the next painted frame.
+requestAnimationFrame(stage);
+})(window.SF);

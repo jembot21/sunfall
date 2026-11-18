@@ -1,14 +1,117 @@
-'use strict';
-// Spatial collision and shared instancing helpers. Static boxes also block sight and bullets.
-SF.boxes=[];
-SF.material=function(color,extra){return new THREE.MeshStandardMaterial(Object.assign({color:color,roughness:.82},extra));};
-SF.batch=function(geometry,material,items,shadow){
- const mesh=new THREE.InstancedMesh(geometry,material,items.length);const d=SF.temp;
- for(let i=0;i<items.length;i++){const a=items[i];d.position.set(a[0],a[1],a[2]);d.rotation.set(a[6]||0,a[7]||0,a[8]||0);d.scale.set(a[3],a[4],a[5]);d.updateMatrix();mesh.setMatrixAt(i,d.matrix);if(a[9]!==undefined)mesh.setColorAt(i,new THREE.Color(a[9]));}
- mesh.castShadow=!!shadow;mesh.receiveShadow=true;SF.scene.add(mesh);return mesh;
-};
-SF.solid=function(x,z,r){if(x < -221+r||x>218-r||z < -220+r||z>220-r)return true;for(let i=0;i<SF.boxes.length;i++){const b=SF.boxes[i];if(x>b.x-b.w-r&&x<b.x+b.w+r&&z>b.z-b.d-r&&z<b.z+b.d+r)return true;}return false;};
-SF.lineClear=function(ax,az,bx,bz){const n=Math.ceil(Math.hypot(bx-ax,bz-az)/4);for(let i=1;i<n;i++)if(SF.solid(ax+(bx-ax)*i/n,az+(bz-az)*i/n,0))return false;return true;};
-SF.move=function(o,dx,dz,r){let hit=false;if(!SF.solid(o.x+dx,o.z,r))o.x+=dx;else hit=true;if(!SF.solid(o.x,o.z+dz,r))o.z+=dz;else hit=true;return hit;};
-SF.label=function(text,x,y,z,color,width){const c=document.createElement('canvas');c.width=512;c.height=96;const ctx=c.getContext('2d');ctx.fillStyle='#172b35';ctx.fillRect(0,0,512,96);ctx.font='bold 54px sans-serif';ctx.textAlign='center';ctx.fillStyle=color||'#ffd88a';ctx.fillText(text,256,67);const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;const m=new THREE.Mesh(new THREE.PlaneGeometry(width||14,2.6),new THREE.MeshBasicMaterial({map:t,side:THREE.FrontSide}));m.position.set(x,y,z);const back=new THREE.Mesh(m.geometry,m.material);back.rotation.y=Math.PI;back.position.z=-.04;m.add(back);SF.scene.add(m);return m;};
-SF.respawn=function(reason){SF.health=100;SF.cash=Math.max(0,SF.cash-150);SF.car=null;SF.player.mesh.visible=true;const at=reason==='BUSTED'?SF.C.station:SF.C.hospital;SF.player.x=at.x;SF.player.z=at.z;SF.clearWanted();SF.missions.retry();SF.message(reason+' — $150 deducted. Your job can be retried.',7);SF.save();};
+// Builds immediately after render.js. Coordinates: Y up, west = -X, ground = 0.
+// SF.world: group, isRoad(x,z), isWater(x,z), groundY(x,z), update(dt),
+// bounds {min,max}, roadCenters[], coastX, mapCanvas (north is negative Z).
+// Roads are centered at multiples of CONFIG.city.block, including boundary roads.
+(function (SF) {
+  'use strict';
+  const T = THREE, C = SF.CONFIG, grid = C.city;
+  const half = grid.blocks * grid.block / 2;
+  const coastX = grid.west;
+  const group = new T.Group();
+  group.name = 'Solano Bay terrain';
+  SF.render.scene.add(group);
+  const roadCenters = Array.from({length: grid.blocks + 1}, (_, i) => -half + i * grid.block);
+  function plane(width, depth, x, y, z, material) {
+    const mesh = new T.Mesh(new T.PlaneGeometry(width, depth), material);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, y, z);
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    return mesh;
+  }
+  const land = new T.MeshStandardMaterial({color: C.colors.sand, roughness: 1});
+  plane(half * 2 + 110, half * 2 + 180, -35, -.04, 0, land);
+  // A single local canvas carries the asphalt, curbs, block yards and lane dashes.
+  const mapCanvas = document.createElement('canvas');
+  mapCanvas.width = mapCanvas.height = 2048;
+  const ctx = mapCanvas.getContext('2d');
+  const extent = half + grid.road / 2;
+  const scale = 2048 / (extent * 2);
+  const px = v => (v + extent) * scale;
+  const rect = (x, z, w, d, color) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(px(x), px(z), w * scale, d * scale);
+  };
+  ctx.fillStyle = '#68655b'; ctx.fillRect(0, 0, 2048, 2048);
+  for (const c of roadCenters) {
+    rect(c - grid.road / 2 - 4, -extent, grid.road + 8, extent * 2, '#b4a38c');
+    rect(-extent, c - grid.road / 2 - 4, extent * 2, grid.road + 8, '#b4a38c');
+  }
+  for (const c of roadCenters) {
+    rect(c - grid.road / 2, -extent, grid.road, extent * 2, '#343941');
+    rect(-extent, c - grid.road / 2, extent * 2, grid.road, '#343941');
+  }
+  for (const c of roadCenters) {
+    for (let k = -half; k < half; k += 9) {
+      const nearest = Math.abs(k - Math.round(k / grid.block) * grid.block);
+      if (nearest < grid.road / 2 + 5) continue;
+      rect(c - .16, k, .32, 4.5, '#e7bb68');
+      rect(k, c - .16, 4.5, .32, '#e7bb68');
+    }
+  }
+  const texture = new T.CanvasTexture(mapCanvas);
+  texture.encoding = T.sRGBEncoding;
+  texture.anisotropy = Math.min(4, SF.render.renderer.capabilities.getMaxAnisotropy());
+  plane(extent * 2, extent * 2, 0, 0, 0,
+    new T.MeshStandardMaterial({map: texture, roughness: .95}));
+  // Raised sidewalk ribbons, instanced as one draw call; no geometry at intersections.
+  const sidewalk = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1),
+    new T.MeshStandardMaterial({color: C.colors.sidewalk, roughness: 1}), grid.blocks * grid.blocks * 4);
+  const dummy = new T.Object3D();
+  let index = 0;
+  function curb(x, z, w, d) {
+    dummy.position.set(x, .08, z); dummy.scale.set(w, .16, d);
+    dummy.updateMatrix(); sidewalk.setMatrixAt(index++, dummy.matrix);
+  }
+  const inner = grid.block - grid.road;
+  for (let ix = 0; ix < grid.blocks; ix++) for (let iz = 0; iz < grid.blocks; iz++) {
+    const x = -half + (ix + .5) * grid.block, z = -half + (iz + .5) * grid.block;
+    curb(x - inner / 2 + 2, z, 4, inner);
+    curb(x + inner / 2 - 2, z, 4, inner);
+    curb(x, z - inner / 2 + 2, inner - 8, 4);
+    curb(x, z + inner / 2 - 2, inner - 8, 4);
+  }
+  sidewalk.receiveShadow = true; group.add(sidewalk);
+  plane(-half - grid.road / 2 - coastX, half * 2 + 180,
+    (coastX - half - grid.road / 2) / 2, -.02, 0, land);
+  const oceanCanvas = document.createElement('canvas');
+  oceanCanvas.width = 256; oceanCanvas.height = 1;
+  const oceanCtx = oceanCanvas.getContext('2d');
+  const gradient = oceanCtx.createLinearGradient(0, 0, 256, 0);
+  gradient.addColorStop(0, '#205260'); gradient.addColorStop(1, '#398b8d');
+  oceanCtx.fillStyle = gradient; oceanCtx.fillRect(0, 0, 256, 1);
+  const oceanTexture = new T.CanvasTexture(oceanCanvas);
+  oceanTexture.encoding = T.sRGBEncoding;
+  const ocean = plane(2000, 3000, coastX - 1000, -.22, 0,
+    new T.MeshStandardMaterial({map: oceanTexture, transparent: true, opacity: .94, roughness: .32, metalness: .25}));
+  const waveCanvas = document.createElement('canvas'); waveCanvas.width = waveCanvas.height = 128;
+  const wctx = waveCanvas.getContext('2d');
+  wctx.strokeStyle = '#bfe4d5'; wctx.lineWidth = 1;
+  for (let j = 0; j < 128; j += 16) {
+    wctx.beginPath();
+    for (let i = 0; i <= 128; i++) {
+      const y = j + Math.sin(i * Math.PI / 32) * 2;
+      if (!i) wctx.moveTo(i, y); else wctx.lineTo(i, y);
+    }
+    wctx.stroke();
+  }
+  const waves = new T.CanvasTexture(waveCanvas);
+  waves.wrapS = waves.wrapT = T.RepeatWrapping; waves.repeat.set(30, 45);
+  plane(2000, 3000, coastX - 1000, -.20, 0,
+    new T.MeshBasicMaterial({map: waves, transparent: true, opacity: .14, depthWrite: false}));
+  SF.world = {
+    group, bounds: {min: -half, max: half}, roadCenters, coastX, mapCanvas,
+    isRoad(x, z) {
+      if (Math.abs(x) > extent || Math.abs(z) > extent) return false;
+      const near = v => Math.abs(v - Math.round(v / grid.block) * grid.block) <= grid.road / 2;
+      return near(x) || near(z);
+    },
+    isWater(x, z) { return x < coastX; },
+    groundY(x, z) { return x < coastX ? -.22 : 0; },
+    update(dt) {
+      waves.offset.y = (waves.offset.y + dt * .018) % 1;
+      waves.offset.x = (waves.offset.x + dt * .006) % 1;
+      ocean.material.opacity = .94;
+    }
+  };
+})(window.SF);
