@@ -1,37 +1,43 @@
-// Node 22 packaging entry: copy this repository's static game and screenshots,
-// then write the kit's canonical dossier over the copied tree (no build step).
+/**
+ * Sunfall — Open-World Crime Action in Solano Bay
+ * Entry builder for make.fun bounty (gta6-01).
+ *
+ * Copies the game and screenshot assets into the destination output directory,
+ * generates the make.fun verification dossier, and reports summary stats.
+ */
+
 import { cpSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve, relative, isAbsolute, sep } from 'node:path';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const root = dirname(fileURLToPath(import.meta.url));
-const output = resolve(process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
-function inside(parent: string, child: string): boolean {
-  const rel = relative(parent, child);
-  return rel === '' || (!rel.startsWith('..' + sep) && rel !== '..' && !isAbsolute(rel));
-}
-for (const name of ['game', 'screenshots']) {
-  const source = resolve(root, name), target = resolve(output, name);
-  if (inside(source, target) || inside(target, source)) {
-    throw new Error('Output must not overlap the source game or screenshots trees.');
-  }
-}
-mkdirSync(output, { recursive: true });
-cpSync(resolve(root, 'game'), resolve(output, 'game'), { recursive: true });
-cpSync(resolve(root, 'screenshots'), resolve(output, 'screenshots'), { recursive: true });
-const dossier = buildDossier(output, {
+const repoRoot = fileURLToPath(new URL('.', import.meta.url));
+const outDir = resolve(process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
+
+mkdirSync(outDir, { recursive: true });
+
+// Copy game/ and screenshots/ recursively into output directory
+cpSync(join(repoRoot, 'game'), join(outDir, 'game'), { recursive: true });
+cpSync(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'), { recursive: true });
+
+// Generate dossier against standard make.fun caps
+const dossierBytes = buildDossier(outDir, {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
   game_max_files: 993,
   game_max_bytes: 50331648,
 });
-writeFileSync(resolve(output, 'dossier.json'), dossier);
+
+writeFileSync(join(outDir, 'dossier.json'), dossierBytes);
+
+// Count output files for verification summary
 function countFiles(dir: string): number {
-  const sortedEntries = readdirSync(dir, { withFileTypes: true }).sort((a: {name: string}, b: {name: string}) => a.name.localeCompare(b.name));
-  return sortedEntries.reduce((count: number, item: {isDirectory(): boolean; name: string; isFile(): boolean}) =>
-    count + (item.isDirectory() ? countFiles(resolve(dir, item.name)) : Number(item.isFile())), 0);
+  let count = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
+    if (entry.isFile()) count++;
+  }
+  return count;
 }
-const screenshots = countFiles(resolve(output, 'screenshots'));
-const files = countFiles(resolve(output, 'game')) + screenshots;
-console.log(`Copied ${files} files to ${output}, including ${screenshots} screenshots; dossier.json ${dossier.byteLength} bytes.`);
+
+const fileCount = countFiles(outDir);
+console.log(`Sunfall built: ${fileCount} files, ${dossierBytes.byteLength} dossier bytes; output directory: ${outDir}`);

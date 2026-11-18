@@ -1,12 +1,378 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23ff9a3c'%2F%3E%3C%2Fsvg%3E">
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta name="description" content="Explore Solano Bay in Sunfall, a sunset crime-and-driving adventure with city jobs, coastal roads, and police pursuits."><title>Sunfall — Solano Bay</title>
-<style>
-:root{color-scheme:dark;font-family:Arial, sans-serif;--accent:#ff9a3c}*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111;color:#fff}#game{position:fixed;inset:0}#game canvas{display:block;width:100%;height:100%}#hud{position:fixed;inset:0;pointer-events:none}.top{position:absolute;top:22px;left:24px;display:flex;gap:22px;align-items:center;text-shadow:0 2px 4px #000;font-weight:bold}.health{width:150px;height:10px;background:#351f20;border:1px solid #ffffff70}.health i{display:block;width:100%;height:100%;background:#e85a4f}.cash{color:#ffd078}.stars{color:#ffb23e;letter-spacing:3px}.minimap{position:absolute;right:24px;top:24px;width:220px;height:220px;border:2px solid #ff9a3c;background:#091215;box-shadow:0 2px 12px #0009}.minimap canvas{width:220px;height:220px}.mission{position:absolute;top:30%;left:50%;transform:translateX(-50%);font-size:18px;font-weight:bold;color:#fff;text-shadow:0 2px 5px #000;white-space:nowrap}.overlay{position:absolute;inset:0;display:grid;place-items:center;background:#090c10c9;text-align:center;pointer-events:auto}.panel h1{font-size:64px;letter-spacing:8px;margin:0;color:var(--accent)}.panel p{font-size:16px;color:#ddd}.hidden{display:none!important}.state{font-size:56px;font-weight:900;color:var(--accent);text-shadow:0 4px 20px #000}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Sunfall</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12' fill='%23ff9a3c'/%3E%3C/svg%3E">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0d0a14;
+      color: #f0e6df;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    }
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+    #canvas-container canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* HUD layer */
+    #hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 20px;
+    }
+
+    /* Top HUD */
+    .hud-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      width: 100%;
+    }
+
+    /* Mission Banner */
+    #mission-banner {
+      background: rgba(13, 10, 20, 0.85);
+      border-left: 4px solid #ff9a3c;
+      padding: 12px 18px;
+      border-radius: 2px;
+      max-width: 360px;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      transition: opacity 0.3s ease;
+    }
+    #mission-banner.hidden {
+      opacity: 0;
+    }
+    #mission-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #ff9a3c;
+      margin-bottom: 4px;
+    }
+    #mission-desc {
+      font-size: 14px;
+      color: #f7ede2;
+      line-height: 1.3;
+    }
+
+    /* Stats display (top right) */
+    .hud-stats {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+    }
+    #cash-display {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      color: #55f389;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.8), 0 0 10px rgba(85,243,137,0.3);
+      font-variant-numeric: tabular-nums;
+    }
+    #wanted-stars {
+      display: flex;
+      gap: 4px;
+      font-size: 22px;
+    }
+    .star {
+      color: #2b2236;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+      transition: color 0.2s ease, transform 0.2s ease;
+    }
+    .star.active {
+      color: #ff9a3c;
+      text-shadow: 0 0 10px #ff9a3c, 0 0 16px rgba(255,154,60,0.6);
+      transform: scale(1.1);
+    }
+
+    /* Health & Armor bar */
+    .bars-container {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 160px;
+    }
+    .bar-wrapper {
+      height: 10px;
+      background: rgba(20, 16, 28, 0.85);
+      border: 1px solid rgba(255, 154, 60, 0.3);
+      border-radius: 2px;
+      overflow: hidden;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.6);
+    }
+    #health-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #d83a56, #ff6b4a);
+      transition: width 0.15s ease-out;
+    }
+    #armor-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #3083dc, #45aaf2);
+      transition: width 0.15s ease-out;
+    }
+
+    /* Bottom HUD */
+    .hud-bottom {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      width: 100%;
+    }
+    #minimap-container {
+      position: relative;
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      border: 3px solid #ff9a3c;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.8), 0 0 14px rgba(255,154,60,0.25);
+      overflow: hidden;
+      background: #110e1a;
+    }
+    #minimap-canvas {
+      width: 220px;
+      height: 220px;
+      display: block;
+    }
+
+    /* Speedometer / Vehicle HUD */
+    #vehicle-hud {
+      display: none;
+      background: rgba(13, 10, 20, 0.85);
+      border-right: 4px solid #ff9a3c;
+      padding: 10px 16px;
+      border-radius: 2px;
+      text-align: right;
+    }
+    #vehicle-speed {
+      font-size: 28px;
+      font-weight: 800;
+      color: #ff9a3c;
+    }
+    #vehicle-name {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #c9b9ad;
+    }
+
+    /* Fullscreen overlays */
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      pointer-events: auto;
+      transition: opacity 0.3s ease;
+    }
+    .overlay.hidden {
+      display: none;
+      opacity: 0;
+    }
+
+    /* Start screen */
+    #start-screen {
+      background: radial-gradient(circle at center, rgba(30, 20, 40, 0.85) 0%, rgba(10, 6, 16, 0.95) 100%);
+      cursor: pointer;
+    }
+    .title-banner {
+      font-size: 72px;
+      font-weight: 900;
+      letter-spacing: 12px;
+      text-transform: uppercase;
+      color: #fff;
+      text-shadow: 0 4px 24px rgba(255,154,60,0.8), 0 0 40px #ff6b35;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      font-size: 16px;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      color: #ff9a3c;
+      margin-bottom: 36px;
+      font-weight: 600;
+    }
+    .start-prompt {
+      font-size: 18px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #f7ede2;
+      animation: pulsePrompt 1.6s infinite ease-in-out;
+      background: rgba(255, 154, 60, 0.15);
+      border: 1px solid rgba(255, 154, 60, 0.4);
+      padding: 12px 28px;
+      border-radius: 4px;
+    }
+    .controls-hint {
+      margin-top: 24px;
+      font-size: 13px;
+      color: #8c8294;
+      letter-spacing: 1px;
+    }
+    @keyframes pulsePrompt {
+      0%, 100% { opacity: 0.55; transform: scale(0.99); }
+      50% { opacity: 1; transform: scale(1.01); }
+    }
+
+    /* Pause Overlay */
+    #pause-overlay {
+      background: rgba(10, 8, 16, 0.85);
+      backdrop-filter: blur(6px);
+    }
+    .pause-title {
+      font-size: 48px;
+      font-weight: 800;
+      letter-spacing: 8px;
+      color: #ff9a3c;
+      margin-bottom: 12px;
+    }
+    .pause-hint {
+      font-size: 14px;
+      letter-spacing: 2px;
+      color: #d1c8d8;
+    }
+
+    /* Wasted / Busted screens */
+    #wasted-overlay {
+      background: rgba(60, 8, 16, 0.65);
+    }
+    #busted-overlay {
+      background: rgba(8, 20, 50, 0.65);
+    }
+    .death-title {
+      font-size: 64px;
+      font-weight: 900;
+      letter-spacing: 10px;
+      text-transform: uppercase;
+      text-shadow: 0 4px 30px rgba(0,0,0,0.9);
+    }
+    #wasted-overlay .death-title {
+      color: #ff3b30;
+      text-shadow: 0 0 25px rgba(255, 59, 48, 0.7);
+    }
+    #busted-overlay .death-title {
+      color: #388bfd;
+      text-shadow: 0 0 25px rgba(56, 139, 253, 0.7);
+    }
+  </style>
 </head>
-<body><div id="game"></div><div id="hud"><div class="top"><div class="health"><i id="healthFill"></i></div><span id="cash" class="cash">$0</span><span id="wanted" class="stars"></span></div><div class="minimap"><canvas id="map" width="220" height="220"></canvas></div><div id="mission" class="mission"></div><div id="state" class="overlay hidden"><div class="state" id="stateText"></div></div><div id="start" class="overlay"><div class="panel"><h1>SUNFALL</h1><p>Click to play · E drive · F punch</p></div></div><div id="pause" class="overlay hidden"><div class="panel"><h1>PAUSED</h1><p>Press Esc or P to resume</p></div></div></div>
-<script src="./vendor/three.min.js"></script><script src="./src/config.js"></script><script src="./src/random.js"></script><script src="./src/input.js"></script><script src="./src/render.js"></script><script src="./src/world.js"></script><script src="./src/city.js"></script><script src="./src/vehicles.js"></script><script src="./src/traffic.js"></script><script src="./src/peds.js"></script><script src="./src/police.js"></script><script src="./src/player.js"></script><script src="./src/missions.js"></script><script src="./src/hud.js"></script><script src="./src/audio.js"></script><script src="./src/save.js"></script><script src="./src/shots.js"></script><script src="./src/main.js"></script>
-</body></html>
+<body>
+  <div id="canvas-container"></div>
+
+  <div id="hud">
+    <div class="hud-top">
+      <div id="mission-banner" class="hidden">
+        <div id="mission-title">Mission</div>
+        <div id="mission-desc">Reach the marker in Solano Bay.</div>
+      </div>
+      <div class="hud-stats">
+        <div id="cash-display">$000000</div>
+        <div id="wanted-stars">
+          <span class="star" data-star="1">★</span>
+          <span class="star" data-star="2">★</span>
+          <span class="star" data-star="3">★</span>
+          <span class="star" data-star="4">★</span>
+          <span class="star" data-star="5">★</span>
+        </div>
+        <div class="bars-container">
+          <div class="bar-wrapper"><div id="armor-fill" style="width: 100%;"></div></div>
+          <div class="bar-wrapper"><div id="health-fill" style="width: 100%;"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud-bottom">
+      <div id="minimap-container">
+        <canvas id="minimap-canvas" width="220" height="220"></canvas>
+      </div>
+      <div id="vehicle-hud">
+        <div id="vehicle-speed">0 MPH</div>
+        <div id="vehicle-name">Torino GT</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Start Screen -->
+  <div id="start-screen" class="overlay">
+    <div class="title-banner">SUNFALL</div>
+    <div class="subtitle">Solano Bay &bull; Sunset Run</div>
+    <div class="start-prompt">CLICK TO PLAY</div>
+    <div class="controls-hint">WASD to Move &bull; Space to Jump / Brake &bull; F / E to Enter Vehicle &bull; Mouse to Aim / Shoot</div>
+  </div>
+
+  <!-- Pause Overlay -->
+  <div id="pause-overlay" class="overlay hidden">
+    <div class="pause-title">PAUSED</div>
+    <div class="pause-hint">Press ESC or P to Resume</div>
+  </div>
+
+  <!-- Wasted Overlay -->
+  <div id="wasted-overlay" class="overlay hidden">
+    <div class="death-title">WASTED</div>
+  </div>
+
+  <!-- Busted Overlay -->
+  <div id="busted-overlay" class="overlay hidden">
+    <div class="death-title">BUSTED</div>
+  </div>
+
+  <!-- Classic Scripts in Exact Document Order -->
+  <script src="./vendor/three.min.js"></script>
+  <script src="./src/config.js"></script>
+  <script src="./src/random.js"></script>
+  <script src="./src/input.js"></script>
+  <script src="./src/render.js"></script>
+  <script src="./src/world.js"></script>
+  <script src="./src/city.js"></script>
+  <script src="./src/vehicles.js"></script>
+  <script src="./src/traffic.js"></script>
+  <script src="./src/peds.js"></script>
+  <script src="./src/police.js"></script>
+  <script src="./src/player.js"></script>
+  <script src="./src/missions.js"></script>
+  <script src="./src/hud.js"></script>
+  <script src="./src/audio.js"></script>
+  <script src="./src/save.js"></script>
+  <script src="./src/shots.js"></script>
+  <script src="./src/main.js"></script>
+</body>
+</html>

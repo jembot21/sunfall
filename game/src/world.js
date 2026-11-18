@@ -1,119 +1,412 @@
-// Builds immediately after render.js. Coordinates: Y up, west = -X, ground = 0.
-// SF.world: group, isRoad(x,z), isWater(x,z), groundY(x,z), update(dt),
-// bounds {min,max}, roadCenters[], coastX, mapCanvas (north is negative Z).
-// Roads are centered at multiples of CONFIG.city.block, including boundary roads.
-(function (SF) {
+/**
+ * Sunfall — World & Ground Geometry Subsystem
+ *
+ * Constructs the city terrain:
+ * - A single high-resolution canvas texture combining asphalt roads, sidewalks,
+ *   zebra crosswalks, dashed lane markings, and golden beach sand.
+ * - Flat 3D sidewalk curb blocks merged into a single BufferGeometry for crisp depth.
+ * - An animated two-layer ocean plane along the western coast.
+ * - Rapid mathematical spatial queries: isRoad(x, z), isWater(x, z), groundY(x, z).
+ */
+
+(function () {
   'use strict';
-  const T = THREE, C = SF.CONFIG, grid = C.city;
-  const half = grid.blocks * grid.block / 2;
-  const coastX = grid.west;
-  const group = new T.Group();
-  group.name = 'Solano Bay terrain';
-  SF.render.scene.add(group);
-  const roadCenters = Array.from({length: grid.blocks + 1}, (_, i) => -half + i * grid.block);
-  function plane(width, depth, x, y, z, material) {
-    const mesh = new T.Mesh(new T.PlaneGeometry(width, depth), material);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, y, z);
+
+  var SF = window.SF = window.SF || {};
+
+  var group = new THREE.Group();
+  group.name = 'world';
+
+  var oceanGroup = new THREE.Group();
+  oceanGroup.name = 'ocean';
+  group.add(oceanGroup);
+
+  var GRID = (SF.CONFIG && SF.CONFIG.GRID) || {
+    BLOCK_SIZE: 72,
+    ROAD_WIDTH: 18,
+    SIDEWALK_WIDTH: 3.5,
+    BLOCKS_X: 8,
+    BLOCKS_Z: 8,
+    BEACH_WIDTH: 45,
+    OCEAN_WIDTH: 180
+  };
+
+  var BLOCK_SIZE = GRID.BLOCK_SIZE;
+  var ROAD_WIDTH = GRID.ROAD_WIDTH;
+  var HALF_ROAD = ROAD_WIDTH / 2;
+  var STRIDE = BLOCK_SIZE + ROAD_WIDTH; // 90m per city block cycle
+  var BLOCKS_X = GRID.BLOCKS_X;
+  var BLOCKS_Z = GRID.BLOCKS_Z;
+  var BEACH_WIDTH = GRID.BEACH_WIDTH;
+  var OCEAN_WIDTH = GRID.OCEAN_WIDTH;
+
+  var CITY_MIN_X = -HALF_ROAD;
+  var CITY_MAX_X = (BLOCKS_X * STRIDE) + HALF_ROAD;
+  var CITY_MIN_Z = -((BLOCKS_Z / 2) * STRIDE) - HALF_ROAD;
+  var CITY_MAX_Z = ((BLOCKS_Z / 2) * STRIDE) + HALF_ROAD;
+
+  var MAP_MIN_X = -BEACH_WIDTH - 15;
+  var MAP_MAX_X = CITY_MAX_X + 20;
+  var MAP_MIN_Z = CITY_MIN_Z - 20;
+  var MAP_MAX_Z = CITY_MAX_Z + 20;
+
+  var SPAN_X = MAP_MAX_X - MAP_MIN_X;
+  var SPAN_Z = MAP_MAX_Z - MAP_MIN_Z;
+
+  var oceanMaterialBase, oceanMaterialFoam;
+
+  function worldToCanvas(wx, wz, size) {
+    return {
+      x: ((wx - MAP_MIN_X) / SPAN_X) * size,
+      y: ((wz - MAP_MIN_Z) / SPAN_Z) * size
+    };
+  }
+
+  function generateGroundTexture() {
+    var size = 2048;
+    var canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    var ctx = canvas.getContext('2d');
+
+    // 1. Fill default base with asphalt
+    ctx.fillStyle = '#222227';
+    ctx.fillRect(0, 0, size, size);
+
+    // 2. Beach strip on the west (left edge)
+    var beachStart = worldToCanvas(MAP_MIN_X, 0, size).x;
+    var beachCoast = worldToCanvas(0, 0, size).x;
+    var beachGrad = ctx.createLinearGradient(beachStart, 0, beachCoast, 0);
+    beachGrad.addColorStop(0.0, '#a87e49'); // wet shoreline
+    beachGrad.addColorStop(0.2, '#cba05f');
+    beachGrad.addColorStop(0.7, '#dfb46c'); // dry golden sand
+    beachGrad.addColorStop(1.0, '#cf9e5a');
+
+    ctx.fillStyle = beachGrad;
+    ctx.fillRect(beachStart, 0, beachCoast - beachStart, size);
+
+    // 3. Draw city blocks (sidewalk slab + lot background)
+    var zHalf = BLOCKS_Z / 2;
+    for (var ix = 0; ix < BLOCKS_X; ix++) {
+      var bx0 = (ix * STRIDE) + HALF_ROAD;
+      var bx1 = bx0 + BLOCK_SIZE;
+
+      for (var iz = 0; iz < BLOCKS_Z; iz++) {
+        var bz0 = ((iz - zHalf) * STRIDE) + HALF_ROAD;
+        var bz1 = bz0 + BLOCK_SIZE;
+
+        var p0 = worldToCanvas(bx0, bz0, size);
+        var p1 = worldToCanvas(bx1, bz1, size);
+        var bw = p1.x - p0.x;
+        var bh = p1.y - p0.y;
+
+        // Sidewalk border / outer curb
+        ctx.fillStyle = '#655f5b';
+        ctx.fillRect(p0.x, p0.y, bw, bh);
+
+        // Inner building lot
+        var inset = (GRID.SIDEWALK_WIDTH / SPAN_X) * size;
+        ctx.fillStyle = '#2a2630';
+        ctx.fillRect(p0.x + inset, p0.y + inset, bw - (inset * 2), bh - (inset * 2));
+      }
+    }
+
+    // 4. Paint road markings (Yellow center double lines, white edge lane dashes)
+    ctx.lineWidth = Math.max(2, (0.35 / SPAN_X) * size);
+
+    // North-South Avenues (constant X)
+    for (var rx = 0; rx <= BLOCKS_X; rx++) {
+      var rwx = rx * STRIDE;
+      var cp = worldToCanvas(rwx, CITY_MIN_Z, size);
+      var ep = worldToCanvas(rwx, CITY_MAX_Z, size);
+
+      // Yellow double center dashed line
+      ctx.strokeStyle = '#f4a824';
+      ctx.setLineDash([12, 10]);
+      ctx.beginPath();
+      ctx.moveTo(cp.x - 2, cp.y);
+      ctx.lineTo(ep.x - 2, ep.y);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(cp.x + 2, cp.y);
+      ctx.lineTo(ep.x + 2, ep.y);
+      ctx.stroke();
+
+      // White lane dividing dashes
+      ctx.strokeStyle = '#dedede';
+      ctx.setLineDash([8, 14]);
+      var laneOffset = (ROAD_WIDTH * 0.25 / SPAN_X) * size;
+      ctx.beginPath();
+      ctx.moveTo(cp.x - laneOffset, cp.y);
+      ctx.lineTo(ep.x - laneOffset, ep.y);
+      ctx.moveTo(cp.x + laneOffset, cp.y);
+      ctx.lineTo(ep.x + laneOffset, ep.y);
+      ctx.stroke();
+    }
+
+    // East-West Streets (constant Z)
+    for (var rz = 0; rz <= BLOCKS_Z; rz++) {
+      var rwz = (rz - zHalf) * STRIDE;
+      var cpx = worldToCanvas(CITY_MIN_X, rwz, size);
+      var epx = worldToCanvas(CITY_MAX_X, rwz, size);
+
+      // Yellow center line
+      ctx.strokeStyle = '#f4a824';
+      ctx.setLineDash([12, 10]);
+      ctx.beginPath();
+      ctx.moveTo(cpx.x, cpx.y);
+      ctx.lineTo(epx.x, epx.y);
+      ctx.stroke();
+
+      // White lane dashes
+      ctx.strokeStyle = '#dedede';
+      ctx.setLineDash([8, 14]);
+      var laneOffsetZ = (ROAD_WIDTH * 0.25 / SPAN_Z) * size;
+      ctx.beginPath();
+      ctx.moveTo(cpx.x, cpx.y - laneOffsetZ);
+      ctx.lineTo(epx.x, epx.y - laneOffsetZ);
+      ctx.moveTo(cpx.x, cpx.y + laneOffsetZ);
+      ctx.lineTo(epx.x, epx.y + laneOffsetZ);
+      ctx.stroke();
+    }
+
+    // 5. White crosswalk zebra bars at intersections
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#e8e8e8';
+    for (var cx = 0; cx <= BLOCKS_X; cx++) {
+      var ixw = cx * STRIDE;
+      for (var cz = 0; cz <= BLOCKS_Z; cz++) {
+        var izw = (cz - zHalf) * STRIDE;
+
+        // 4 crosswalk branches around the intersection box
+        var zebraLen = (HALF_ROAD / SPAN_X) * size;
+        var barW = Math.max(2, (1.2 / SPAN_X) * size);
+        var barGap = Math.max(3, (2.2 / SPAN_X) * size);
+
+        // East & West crosswalks
+        var pCenter = worldToCanvas(ixw, izw, size);
+        var halfBox = (HALF_ROAD / SPAN_X) * size;
+
+        for (var b = -halfBox + 4; b < halfBox - 4; b += barGap) {
+          ctx.fillRect(pCenter.x - halfBox - zebraLen * 0.6, pCenter.y + b, zebraLen * 0.5, barW);
+          ctx.fillRect(pCenter.x + halfBox + 2, pCenter.y + b, zebraLen * 0.5, barW);
+        }
+
+        // North & South crosswalks
+        for (var bx = -halfBox + 4; bx < halfBox - 4; bx += barGap) {
+          ctx.fillRect(pCenter.x + bx, pCenter.y - halfBox - zebraLen * 0.6, barW, zebraLen * 0.5);
+          ctx.fillRect(pCenter.x + bx, pCenter.y + halfBox + 2, barW, zebraLen * 0.5);
+        }
+      }
+    }
+
+    var tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.anisotropy = 4;
+    return tex;
+  }
+
+  function buildGroundPlane() {
+    var planeWidth = SPAN_X;
+    var planeHeight = SPAN_Z;
+    var geom = new THREE.PlaneGeometry(planeWidth, planeHeight, 1, 1);
+    geom.rotateX(-Math.PI / 2);
+
+    var mat = new THREE.MeshStandardMaterial({
+      map: generateGroundTexture(),
+      roughness: 0.85,
+      metalness: 0.1
+    });
+
+    var mesh = new THREE.Mesh(geom, mat);
+    mesh.position.set(
+      MAP_MIN_X + (SPAN_X / 2),
+      0,
+      MAP_MIN_Z + (SPAN_Z / 2)
+    );
     mesh.receiveShadow = true;
     group.add(mesh);
-    return mesh;
   }
-  const land = new T.MeshStandardMaterial({color: C.colors.sand, roughness: 1});
-  plane(half * 2 + 110, half * 2 + 180, -35, -.04, 0, land);
-  // A single local canvas carries the asphalt, curbs, block yards and lane dashes.
-  const mapCanvas = document.createElement('canvas');
-  mapCanvas.width = mapCanvas.height = 2048;
-  const ctx = mapCanvas.getContext('2d');
-  const extent = half + grid.road / 2;
-  const scale = 2048 / (extent * 2);
-  const px = v => (v + extent) * scale;
-  const rect = (x, z, w, d, color) => {
-    ctx.fillStyle = color;
-    ctx.fillRect(px(x), px(z), w * scale, d * scale);
-  };
-  ctx.fillStyle = '#68655b'; ctx.fillRect(0, 0, 2048, 2048);
-  for (const c of roadCenters) {
-    rect(c - grid.road / 2 - 4, -extent, grid.road + 8, extent * 2, '#b4a38c');
-    rect(-extent, c - grid.road / 2 - 4, extent * 2, grid.road + 8, '#b4a38c');
-  }
-  for (const c of roadCenters) {
-    rect(c - grid.road / 2, -extent, grid.road, extent * 2, '#30353c');
-    rect(-extent, c - grid.road / 2, extent * 2, grid.road, '#30353c');
-  }
-  for (const c of roadCenters) {
-    for (let k = -half; k < half; k += 9) {
-      const nearest = Math.abs(k - Math.round(k / grid.block) * grid.block);
-      if (nearest < grid.road / 2 + 5) continue;
-      rect(c - .16, k, .32, 4.5, '#e7bb68');
-      rect(k, c - .16, 4.5, .32, '#e7bb68');
+
+  function buildSidewalkCurbs() {
+    // Generate merged 3D curbs for tactile depth at road edges
+    var curbGeomList = [];
+    var zHalf = BLOCKS_Z / 2;
+    var curbH = 0.16;
+
+    for (var ix = 0; ix < BLOCKS_X; ix++) {
+      var bx = (ix * STRIDE) + HALF_ROAD + (BLOCK_SIZE / 2);
+
+      for (var iz = 0; iz < BLOCKS_Z; iz++) {
+        var bz = ((iz - zHalf) * STRIDE) + HALF_ROAD + (BLOCK_SIZE / 2);
+
+        var boxGeom = new THREE.BoxGeometry(BLOCK_SIZE, curbH, BLOCK_SIZE);
+        boxGeom.translate(bx, curbH / 2, bz);
+        curbGeomList.push(boxGeom);
+      }
+    }
+
+    if (curbGeomList.length > 0) {
+      // In Three.js r147 BufferGeometryUtils is not in core, so we can group them
+      // into an InstancedMesh or single mesh. Using an InstancedMesh is 1 draw call:
+      var singleBox = new THREE.BoxGeometry(BLOCK_SIZE, curbH, BLOCK_SIZE);
+      var curbMat = new THREE.MeshStandardMaterial({
+        color: (SF.CONFIG && SF.CONFIG.COLORS && SF.CONFIG.COLORS.SIDEWALK) || 0x6e6863,
+        roughness: 0.9,
+        metalness: 0.05
+      });
+
+      var instMesh = new THREE.InstancedMesh(singleBox, curbMat, curbGeomList.length);
+      instMesh.receiveShadow = true;
+      instMesh.castShadow = true;
+
+      var dummy = new THREE.Object3D();
+      var idx = 0;
+      for (var i = 0; i < BLOCKS_X; i++) {
+        var cx = (i * STRIDE) + HALF_ROAD + (BLOCK_SIZE / 2);
+        for (var j = 0; j < BLOCKS_Z; j++) {
+          var cz = ((j - zHalf) * STRIDE) + HALF_ROAD + (BLOCK_SIZE / 2);
+          dummy.position.set(cx, curbH / 2, cz);
+          dummy.updateMatrix();
+          instMesh.setMatrixAt(idx++, dummy.matrix);
+        }
+      }
+      instMesh.instanceMatrix.needsUpdate = true;
+      group.add(instMesh);
     }
   }
-  const texture = new T.CanvasTexture(mapCanvas);
-  texture.encoding = T.sRGBEncoding;
-  texture.anisotropy = Math.min(4, SF.render.renderer.capabilities.getMaxAnisotropy());
-  plane(extent * 2, extent * 2, 0, 0, 0,
-    new T.MeshStandardMaterial({map: texture, roughness: .95}));
-  // Raised sidewalk ribbons, instanced as one draw call; no geometry at intersections.
-  const sidewalk = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1),
-    new T.MeshStandardMaterial({color: C.colors.sidewalk, roughness: 1}), grid.blocks * grid.blocks * 4);
-  const dummy = new T.Object3D();
-  let index = 0;
-  function curb(x, z, w, d) {
-    dummy.position.set(x, .08, z); dummy.scale.set(w, .16, d);
-    dummy.updateMatrix(); sidewalk.setMatrixAt(index++, dummy.matrix);
-  }
-  const inner = grid.block - grid.road;
-  for (let ix = 0; ix < grid.blocks; ix++) for (let iz = 0; iz < grid.blocks; iz++) {
-    const x = -half + (ix + .5) * grid.block, z = -half + (iz + .5) * grid.block;
-    curb(x - inner / 2 + 2, z, 4, inner);
-    curb(x + inner / 2 - 2, z, 4, inner);
-    curb(x, z - inner / 2 + 2, inner - 8, 4);
-    curb(x, z + inner / 2 - 2, inner - 8, 4);
-  }
-  sidewalk.receiveShadow = true; group.add(sidewalk);
-  plane(-half - grid.road / 2 - coastX, half * 2 + 180,
-    (coastX - half - grid.road / 2) / 2, -.02, 0, land);
-  const oceanCanvas = document.createElement('canvas');
-  oceanCanvas.width = 256; oceanCanvas.height = 1;
-  const oceanCtx = oceanCanvas.getContext('2d');
-  const gradient = oceanCtx.createLinearGradient(0, 0, 256, 0);
-  gradient.addColorStop(0, '#205260'); gradient.addColorStop(1, '#398b8d');
-  oceanCtx.fillStyle = gradient; oceanCtx.fillRect(0, 0, 256, 1);
-  const oceanTexture = new T.CanvasTexture(oceanCanvas);
-  oceanTexture.encoding = T.sRGBEncoding;
-  const ocean = plane(2000, 3000, coastX - 1000, -.22, 0,
-    new T.MeshStandardMaterial({map: oceanTexture, transparent: true, opacity: .94, roughness: .32, metalness: .25}));
-  plane(5, half * 2 + 180, coastX + 2.5, -.005, 0,
-    new T.MeshStandardMaterial({color: 0x9a704d, roughness: .95}));
-  const waveCanvas = document.createElement('canvas'); waveCanvas.width = waveCanvas.height = 128;
-  const wctx = waveCanvas.getContext('2d');
-  wctx.strokeStyle = '#bfe4d5'; wctx.lineWidth = 1;
-  for (let j = 0; j < 128; j += 16) {
-    wctx.beginPath();
-    for (let i = 0; i <= 128; i++) {
-      const y = j + Math.sin(i * Math.PI / 32) * 2;
-      if (!i) wctx.moveTo(i, y); else wctx.lineTo(i, y);
+
+  function buildOcean() {
+    var oceanW = OCEAN_WIDTH + 80;
+    var oceanL = SPAN_Z + 160;
+
+    // Deep water bottom plane
+    var deepGeom = new THREE.PlaneGeometry(oceanW, oceanL, 1, 1);
+    deepGeom.rotateX(-Math.PI / 2);
+    var colors = [];
+    var positions = deepGeom.attributes.position;
+    for (var v = 0; v < positions.count; v++) {
+      var waterColor = new THREE.Color(0x183652).lerp(new THREE.Color(0x397a87), positions.getX(v) / oceanW + 0.5);
+      colors.push(waterColor.r, waterColor.g, waterColor.b);
     }
-    wctx.stroke();
+    deepGeom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+    oceanMaterialBase = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      roughness: 0.2,
+      metalness: 0.4,
+      transparent: true,
+      opacity: 0.92
+    });
+
+    var oceanBase = new THREE.Mesh(deepGeom, oceanMaterialBase);
+    oceanBase.position.set(-BEACH_WIDTH - (oceanW / 2) + 6, -0.4, 0);
+    oceanBase.receiveShadow = true;
+    oceanGroup.add(oceanBase);
+
+    // Surface wave/foam plane slightly above
+    var foamGeom = new THREE.PlaneGeometry(oceanW, oceanL, 1, 1);
+    foamGeom.rotateX(-Math.PI / 2);
+
+    oceanMaterialFoam = new THREE.MeshBasicMaterial({
+      color: (SF.CONFIG && SF.CONFIG.COLORS && SF.CONFIG.COLORS.OCEAN_FOAM) || 0x6ebbdb,
+      transparent: true,
+      opacity: 0.35,
+      blending: THREE.AdditiveBlending
+    });
+
+    var oceanFoam = new THREE.Mesh(foamGeom, oceanMaterialFoam);
+    oceanFoam.position.set(-BEACH_WIDTH - (oceanW / 2) + 6, -0.32, 0);
+    oceanGroup.add(oceanFoam);
   }
-  const waves = new T.CanvasTexture(waveCanvas);
-  waves.wrapS = waves.wrapT = T.RepeatWrapping; waves.repeat.set(30, 45);
-  plane(2000, 3000, coastX - 1000, -.20, 0,
-    new T.MeshBasicMaterial({map: waves, transparent: true, opacity: .14, depthWrite: false}));
+
+  // --- Spatial Query Methods ---
+
+  function isWater(x, z) {
+    return x < -BEACH_WIDTH + 1.5;
+  }
+
+  function isRoad(x, z) {
+    // Coast road or outside city check
+    if (x < -HALF_ROAD || x > CITY_MAX_X || z < CITY_MIN_Z || z > CITY_MAX_Z) {
+      return false;
+    }
+
+    // Distance to nearest North-South road centerline
+    var nearestRoadX = Math.round(x / STRIDE) * STRIDE;
+    if (nearestRoadX >= 0 && nearestRoadX <= BLOCKS_X * STRIDE) {
+      if (Math.abs(x - nearestRoadX) <= HALF_ROAD) {
+        return true;
+      }
+    }
+
+    // Distance to nearest East-West street centerline
+    var zHalf = BLOCKS_Z / 2;
+    var relZ = z + (zHalf * STRIDE);
+    var nearestRoadZ = Math.round(relZ / STRIDE) * STRIDE - (zHalf * STRIDE);
+    if (nearestRoadZ >= CITY_MIN_Z && nearestRoadZ <= CITY_MAX_Z) {
+      if (Math.abs(z - nearestRoadZ) <= HALF_ROAD) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function groundY(x, z) {
+    if (x < -BEACH_WIDTH) {
+      // Water level
+      return -0.45;
+    }
+    if (x < 0) {
+      // Gentle slope along beach down to ocean
+      var t = (x - (-BEACH_WIDTH)) / BEACH_WIDTH; // 0 at water, 1 at road
+      return -0.45 * (1 - t);
+    }
+    // Flat city surface
+    return 0.0;
+  }
+
+  var animTimer = 0;
+  function update(dt) {
+    animTimer += dt;
+    // Subtle ocean swell breathing animation
+    if (oceanGroup) {
+      oceanGroup.position.y = Math.sin(animTimer * 1.4) * 0.08;
+    }
+  }
+
+  // Build the world geometry on instantiation
+  buildGroundPlane();
+  buildSidewalkCurbs();
+  buildOcean();
+
+  // Add world group to render scene if already initialized
+  if (SF.render && SF.render.scene) {
+    SF.render.scene.add(group);
+  }
+
   SF.world = {
-    group, bounds: {min: -half, max: half}, roadCenters, coastX, mapCanvas,
-    isRoad(x, z) {
-      if (Math.abs(x) > extent || Math.abs(z) > extent) return false;
-      const near = v => Math.abs(v - Math.round(v / grid.block) * grid.block) <= grid.road / 2;
-      return near(x) || near(z);
+    group: group,
+    isRoad: isRoad,
+    isWater: isWater,
+    groundY: groundY,
+    update: update,
+    roadCenters: {
+      x: Array.from({ length: BLOCKS_X + 1 }, function (_, i) { return i * STRIDE; }),
+      z: Array.from({ length: BLOCKS_Z + 1 }, function (_, i) { return (i - BLOCKS_Z / 2) * STRIDE; })
     },
-    isWater(x, z) { return x < coastX; },
-    groundY(x, z) { return x < coastX ? -.22 : 0; },
-    update(dt) {
-      waves.offset.y = (waves.offset.y + dt * .018) % 1;
-      waves.offset.x = (waves.offset.x + dt * .006) % 1;
-      ocean.material.opacity = .94;
+    coastX: 0,
+    bounds: {
+      minX: CITY_MIN_X,
+      maxX: CITY_MAX_X,
+      minZ: CITY_MIN_Z,
+      maxZ: CITY_MAX_Z,
+      beachWidth: BEACH_WIDTH,
+      oceanWidth: OCEAN_WIDTH
     }
   };
-})(window.SF);
+})();

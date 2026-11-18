@@ -1,90 +1,240 @@
-// SF.input: isDown(action), pressed(action) (consumes an edge), endFrame(), clear(),
-// mouse {x,y,dx,dy} (normalized coordinates and frame motion), started, paused.
-// Actions: forward/back/left/right/run/use/fire/aim/handbrake/pause/start.
-// E=use, F or left mouse=fire, Space=handbrake, right mouse=aim. Pause toggles
-// here; main must skip simulation when !started || paused and call endFrame().
-// DOM emits sf:start and sf:pause (detail is paused boolean). Pointer lock optional.
-(function (SF) {
+/**
+ * Sunfall — Input Handling Subsystem
+ *
+ * Captures keyboard and mouse events, maps raw keys to high-level game actions,
+ * provides edge detection (pressed / released), and supports optional pointer lock.
+ */
+
+(function () {
   'use strict';
-  const keys = new Set(), edges = new Set();
-  const mapping = {
-    forward: ['KeyW', 'ArrowUp'], back: ['KeyS', 'ArrowDown'],
-    left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
-    run: ['ShiftLeft', 'ShiftRight'], use: ['KeyE'], fire: ['KeyF', 'Mouse0'],
-    aim: ['Mouse2'], handbrake: ['Space'], pause: ['Escape', 'KeyP'], start: ['Enter', 'NumpadEnter']
+
+  var SF = window.SF = window.SF || {};
+
+  var ACTION_KEY_MAP = {
+    forward: ['KeyW', 'ArrowUp'],
+    backward: ['KeyS', 'ArrowDown'],
+    left: ['KeyA', 'ArrowLeft'],
+    right: ['KeyD', 'ArrowRight'],
+    sprint: ['ShiftLeft', 'ShiftRight'],
+    interact: ['KeyF', 'KeyE'],
+    jump: ['Space'],
+    handbrake: ['Space'],
+    pause: ['Escape', 'KeyP']
   };
-  const start = document.getElementById('start'), pause = document.getElementById('pause');
-  const host = document.getElementById('game');
-  const startHint = start.querySelector?.('p');
-  if (startHint) startHint.textContent = 'Click or press Enter to play';
-  const mouse = {x: 0, y: 0, dx: 0, dy: 0, wheel: 0};
-  let cameraDistance = 16;
-  let started = false, paused = false;
-  function clear() { keys.clear(); edges.clear(); mouse.dx = mouse.dy = 0; }
-  function setPaused(value) {
-    if (!started || paused === Boolean(value)) return;
-    paused = Boolean(value); clear(); pause.classList.toggle('hidden', !paused);
-    if (paused && document.pointerLockElement) document.exitPointerLock();
-    window.dispatchEvent(new CustomEvent('sf:pause', {detail: paused}));
-  }
-  function begin() {
-    if (started) return;
-    started = true; clear(); start.classList.add('hidden');
-    window.dispatchEvent(new CustomEvent('sf:start'));
-  }
-  window.addEventListener('keydown', event => {
-    if (!Object.values(mapping).some(list => list.includes(event.code))) return;
-    event.preventDefault();
-    if (event.repeat || keys.has(event.code)) return;
-    if (mapping.start.includes(event.code) && !started) { begin(); return; }
-    if (mapping.pause.includes(event.code)) {
-      setPaused(!paused); keys.add(event.code); edges.add(event.code); return;
+
+  var keyState = {};
+  var actionPressed = {};
+  var actionReleased = {};
+  var actionDown = {};
+
+  var mouseButtons = { 0: false, 1: false, 2: false };
+  var mousePressed = { 0: false, 1: false, 2: false };
+  var mouseReleased = { 0: false, 1: false, 2: false };
+
+  var mousePos = { x: 0, y: 0, dx: 0, dy: 0 };
+  var pointerLocked = false;
+
+  function recomputeActionDown(action) {
+    var keys = ACTION_KEY_MAP[action];
+    if (!keys) return false;
+    for (var i = 0; i < keys.length; i++) {
+      if (keyState[keys[i]]) return true;
     }
-    if (started && !paused) { keys.add(event.code); edges.add(event.code); }
-  });
-  window.addEventListener('keyup', event => keys.delete(event.code));
-  window.addEventListener('blur', () => { clear(); setPaused(true); });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) setPaused(true); });
-  start.addEventListener('click', begin);
-  pause.addEventListener('click', () => setPaused(false));
-  host.addEventListener('mousedown', event => {
-    if (!started || paused) return;
-    const code = 'Mouse' + event.button;
-    if (!keys.has(code)) edges.add(code);
-    keys.add(code);
-  });
-  window.addEventListener('mouseup', event => keys.delete('Mouse' + event.button));
-  window.addEventListener('mousemove', event => {
-    if (document.pointerLockElement) {
-      mouse.x = Math.max(-1, Math.min(1, mouse.x + event.movementX / innerWidth * 2));
-      mouse.y = Math.max(-1, Math.min(1, mouse.y - event.movementY / innerHeight * 2));
-    } else {
-      mouse.x = event.clientX / innerWidth * 2 - 1;
-      mouse.y = 1 - event.clientY / innerHeight * 2;
-    }
-    mouse.dx += event.movementX || 0; mouse.dy += event.movementY || 0;
-  });
-  host.addEventListener('wheel', event => {
-    event.preventDefault();
-    cameraDistance = Math.max(10, Math.min(24, cameraDistance + Math.sign(event.deltaY) * 1.5));
-  }, {passive: false});
-  host.addEventListener('contextmenu', event => {
-    event.preventDefault();
-    event.stopPropagation();
-  }, {capture: true});
-  SF.input = {
-    mouse, clear, setPaused, get cameraDistance() { return cameraDistance; },
-    get started() { return started; }, get paused() { return paused; },
-    isDown(action) { return (mapping[action] || []).some(key => keys.has(key)); },
-    pressed(action) {
-      const list = mapping[action] || [], hit = list.some(key => edges.has(key));
-      list.forEach(key => edges.delete(key)); return hit;
-    },
-    endFrame() { edges.clear(); mouse.dx = mouse.dy = 0; },
-    requestPointerLock() {
-      if (host.requestPointerLock) {
-        try { const pending = host.requestPointerLock(); if (pending) pending.catch(() => {}); } catch (_) {}
+    return false;
+  }
+
+  function onKeyDown(e) {
+    if (e.repeat) return;
+    var code = e.code;
+    keyState[code] = true;
+
+    // Check action edge transitions
+    for (var action in ACTION_KEY_MAP) {
+      if (ACTION_KEY_MAP.hasOwnProperty(action)) {
+        var keys = ACTION_KEY_MAP[action];
+        if (keys.indexOf(code) !== -1) {
+          if (!actionDown[action]) {
+            actionDown[action] = true;
+            actionPressed[action] = true;
+          }
+        }
       }
     }
+
+    // Prevent default scrolling for game keys
+    if (code === 'Space' || code === 'ArrowUp' || code === 'ArrowDown' || code === 'ArrowLeft' || code === 'ArrowRight') {
+      e.preventDefault();
+    }
+  }
+
+  function onKeyUp(e) {
+    var code = e.code;
+    keyState[code] = false;
+
+    // Check action release
+    for (var action in ACTION_KEY_MAP) {
+      if (ACTION_KEY_MAP.hasOwnProperty(action)) {
+        var keys = ACTION_KEY_MAP[action];
+        if (keys.indexOf(code) !== -1) {
+          var stillDown = recomputeActionDown(action);
+          if (!stillDown && actionDown[action]) {
+            actionDown[action] = false;
+            actionReleased[action] = true;
+          }
+        }
+      }
+    }
+  }
+
+  function onMouseMove(e) {
+    mousePos.x = e.clientX;
+    mousePos.y = e.clientY;
+    mousePos.dx += e.movementX || 0;
+    mousePos.dy += e.movementY || 0;
+  }
+
+  function onMouseDown(e) {
+    var btn = e.button;
+    if (!mouseButtons[btn]) {
+      mousePressed[btn] = true;
+    }
+    mouseButtons[btn] = true;
+
+    // Edge map shoot (left) and aim (right)
+    if (btn === 0) {
+      if (!actionDown.shoot) {
+        actionDown.shoot = true;
+        actionPressed.shoot = true;
+      }
+    } else if (btn === 2) {
+      if (!actionDown.aim) {
+        actionDown.aim = true;
+        actionPressed.aim = true;
+      }
+    }
+  }
+
+  function onMouseUp(e) {
+    var btn = e.button;
+    if (mouseButtons[btn]) {
+      mouseReleased[btn] = true;
+    }
+    mouseButtons[btn] = false;
+
+    if (btn === 0) {
+      actionDown.shoot = false;
+      actionReleased.shoot = true;
+    } else if (btn === 2) {
+      actionDown.aim = false;
+      actionReleased.aim = true;
+    }
+  }
+
+  function onContextMenu(e) {
+    // Prevent right-click browser menu to allow seamless aiming
+    if (e.target && e.target.tagName === 'CANVAS') e.preventDefault();
+  }
+
+  function onPointerLockChange() {
+    pointerLocked = (document.pointerLockElement !== null && document.pointerLockElement !== undefined);
+  }
+
+  function resetAll() {
+    for (var k in keyState) keyState[k] = false;
+    for (var a in actionDown) {
+      actionDown[a] = false;
+      actionPressed[a] = false;
+      actionReleased[a] = false;
+    }
+    for (var b in mouseButtons) {
+      mouseButtons[b] = false;
+      mousePressed[b] = false;
+      mouseReleased[b] = false;
+    }
+    mousePos.dx = 0;
+    mousePos.dy = 0;
+  }
+
+  // Bind window listeners immediately
+  window.addEventListener('keydown', onKeyDown, false);
+  window.addEventListener('keyup', onKeyUp, false);
+  window.addEventListener('mousemove', onMouseMove, false);
+  window.addEventListener('mousedown', onMouseDown, false);
+  window.addEventListener('mouseup', onMouseUp, false);
+  window.addEventListener('contextmenu', onContextMenu, false);
+  window.addEventListener('blur', resetAll, false);
+  document.addEventListener('pointerlockchange', onPointerLockChange, false);
+
+  SF.input = {
+    // Current continuous state of an action
+    isDown: function (action) {
+      return !!actionDown[action];
+    },
+
+    // Edge detection: true only in the frame the action was triggered
+    pressed: function (action) {
+      return !!actionPressed[action];
+    },
+
+    // Edge detection: true only in the frame the action was released
+    released: function (action) {
+      return !!actionReleased[action];
+    },
+
+    // Mouse query interface
+    mouse: {
+      get x() { return mousePos.x; },
+      get y() { return mousePos.y; },
+      get dx() { return mousePos.dx; },
+      get dy() { return mousePos.dy; },
+      isDown: function (btn) {
+        return !!mouseButtons[btn];
+      },
+      pressed: function (btn) {
+        return !!mousePressed[btn];
+      },
+      released: function (btn) {
+        return !!mouseReleased[btn];
+      },
+      get locked() {
+        return pointerLocked;
+      }
+    },
+
+    // Pointer lock utilities
+    requestPointerLock: function (element) {
+      var target = element || document.body;
+      if (target.requestPointerLock) {
+        target.requestPointerLock();
+      }
+    },
+
+    exitPointerLock: function () {
+      if (document.exitPointerLock) {
+        document.exitPointerLock();
+      }
+    },
+
+    isPointerLocked: function () {
+      return pointerLocked;
+    },
+
+    // Called once at the end of each game frame loop to flush edge transitions
+    update: function () {
+      for (var a in actionPressed) {
+        actionPressed[a] = false;
+      }
+      for (var r in actionReleased) {
+        actionReleased[r] = false;
+      }
+      for (var b in mousePressed) {
+        mousePressed[b] = false;
+        mouseReleased[b] = false;
+      }
+      mousePos.dx = 0;
+      mousePos.dy = 0;
+    },
+
+    reset: resetAll
   };
-})(window.SF);
+})();
