@@ -1,84 +1,183 @@
-// Cars use +Z as forward. All actors share the same collision helpers.
-(function (SF) {
+(function () {
   'use strict';
-  const C = SF.CONFIG, group = new THREE.Group(), parked = [], all = [];
-  SF.render.scene.add(group);
-  const roads = SF.world.roadCenters = SF.world.roadCenters || Array.from({ length: C.city.blocksAcross }, (_, i) => (i - (C.city.blocksAcross - 1) / 2) * C.city.blockSize);
-  SF.world.bounds = SF.world.bounds || { minX: C.city.coastX + 8, maxX: 550, minZ: -550, maxZ: 550 };
-  SF.world.coastX = C.city.coastX;
-  const palette = [0xd76b48, 0xe8b95f, 0x568c94, 0x8d6085, 0xd9ccc0, 0x394456];
-  function box(parent, w, h, d, x, y, z, color, glow) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.2, emissive: glow ? color : 0, emissiveIntensity: glow ? 1.4 : 0 }));
-    m.position.set(x, y, z); m.castShadow = !glow; parent.add(m); return m;
+  var scene = SF.render.scene, list = [];
+  var defs = [
+    { name: 'Falco GT', colors: ['#ff583c','#ffa940','#c35eff'], topSpeed: 53, accel: 19, grip: 7, health: 100, cabin: 0.56, length: 4.4 },
+    { name: 'Palma Cruiser', colors: ['#2aa9dc','#f4e9d0','#ba4762'], topSpeed: 40, accel: 13, grip: 6, health: 100, cabin: 0.74, length: 4.6 },
+    { name: 'Brisa Compact', colors: ['#27d4a9','#ff73ad','#d3db53'], topSpeed: 36, accel: 14, grip: 8, health: 100, cabin: 0.78, length: 3.7 },
+    { name: 'Dockmaster', colors: ['#d98846','#508b80','#f0d18b'], topSpeed: 39, accel: 12, grip: 5, health: 100, cabin: 0.88, length: 5 },
+    { name: 'Solano Van', colors: ['#bb8de6','#e5dfd0','#ed8eba'], topSpeed: 34, accel: 11, grip: 5, health: 100, cabin: 1.18, length: 4.8 },
+    { name: 'Turismo S', colors: ['#ffcf34','#fe4d7e','#54efd6'], topSpeed: 63, accel: 24, grip: 9, health: 100, cabin: 0.48, length: 4.3 }
+  ];
+  var box = new THREE.BoxGeometry(1, 1, 1);
+  var tireGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.29, 10);
+  var hubGeo = new THREE.CylinderGeometry(0.21, 0.21, 0.303, 8);
+  tireGeo.rotateZ(Math.PI / 2); hubGeo.rotateZ(Math.PI / 2);
+  var rubber = new THREE.MeshStandardMaterial({color: 0x22212a, roughness: 0.91});
+  var alloy = new THREE.MeshStandardMaterial({color: 0xb2aeb9, metalness: 0.65, roughness: 0.43});
+  var glass = new THREE.MeshStandardMaterial({color: 0x292b46, metalness: 0.46, roughness: 0.19});
+  var head = new THREE.MeshStandardMaterial({color: 0xfff2c4, emissive: 0xffd99c, emissiveIntensity: 1.4});
+  var tail = new THREE.MeshStandardMaterial({color: 0xf14458, emissive: 0xe42142, emissiveIntensity: 0.85});
+  var paint = defs.map(function (d) {
+    return d.colors.map(function (color) { return new THREE.MeshStandardMaterial({color: color, metalness: 0.38, roughness: 0.34}); });
+  });
+  var step = SF.CONFIG.grid.block + SF.CONFIG.grid.road, half = SF.CONFIG.grid.halfCity;
+  var cellSize = 32, gridStart = -480, gridSize = 32, cells = [];
+  for (var i = 0; i < gridSize * gridSize; i++) cells.push([]);
+  SF.city.colliders.forEach(function (c) {
+    for (var z = cell(c.z - c.r - 3); z <= cell(c.z + c.r + 3); z++) {
+      for (var x = cell(c.x - c.r - 3); x <= cell(c.x + c.r + 3); x++) cells[z * gridSize + x].push(c);
+    }
+  });
+  function cell(n) { return Math.min(gridSize - 1, Math.max(0, Math.floor((n - gridStart) / cellSize))); }
+  function nearby(x, z) { return cells[cell(z) * gridSize + cell(x)]; }
+  function clear(x, z, radius) {
+    var obstacles = nearby(x, z);
+    for (var i = 0; i < obstacles.length; i++) {
+      var c = obstacles[i], dx = x - c.x, dz = z - c.z, r = c.r + radius;
+      if (dx * dx + dz * dz < r * r) return false;
+    }
+    return !SF.world.isWater(x, z);
   }
-  function createCar(color) {
-    const mesh = new THREE.Group(), wheels = [];
-    color = color === undefined ? SF.random.pick(palette) : color;
-    box(mesh, 2.7, 0.85, 5.2, 0, 0.95, 0, color);
-    box(mesh, 2.25, 0.92, 2.6, 0, 1.78, -0.2, 0x243745);
-    box(mesh, 2.35, 0.16, 2.7, 0, 2.28, -0.2, color);
-    box(mesh, 2.8, 0.23, 0.25, 0, 0.68, 2.65, 0xbab8aa);
-    box(mesh, 2.8, 0.23, 0.25, 0, 0.68, -2.65, 0xbab8aa);
-    for (const x of [-0.87, 0.87]) {
-      box(mesh, 0.55, 0.28, 0.12, x, 1.1, 2.64, 0xffe1a1, true);
-      box(mesh, 0.55, 0.25, 0.12, x, 1.1, -2.64, 0xe94c43, true);
-    }
-    const tire = new THREE.CylinderGeometry(0.55, 0.55, 0.35, 10), rubber = new THREE.MeshStandardMaterial({ color: 0x17191d });
-    for (const x of [-1.4, 1.4]) for (const z of [-1.65, 1.65]) {
-      const wheel = new THREE.Mesh(tire, rubber); wheel.rotation.z = Math.PI / 2; wheel.position.set(x, 0.55, z); mesh.add(wheel); wheels.push(wheel);
-    }
-    const car = { mesh, pos: mesh.position, speed: 0, heading: 0, radius: 2.2, wheels, occupied: false, kind: 'parked', crashCooldown: 0 };
-    group.add(mesh); all.push(car); return car;
+  function part(parent, material, x, y, z, w, h, l) {
+    var mesh = new THREE.Mesh(box, material);
+    mesh.position.set(x, y, z); mesh.scale.set(w, h, l); parent.add(mesh);
+    return mesh;
   }
-  function resolve(pos, radius) {
-    const b = SF.world.bounds; let hit = false;
-    const x = pos.x, z = pos.z;
-    pos.x = Math.max(b.minX + radius, Math.min(b.maxX - radius, pos.x));
-    pos.z = Math.max(b.minZ + radius, Math.min(b.maxZ - radius, pos.z));
-    hit = x !== pos.x || z !== pos.z;
-    for (const c of SF.city.colliders) {
-      const dx = pos.x - c.x, dz = pos.z - c.z, d = Math.hypot(dx, dz), r = c.r + radius;
-      if (d < r) { pos.x = c.x + (d > 0.001 ? dx / d : 1) * r; pos.z = c.z + (d > 0.001 ? dz / d : 0) * r; hit = true; }
+  function simulate(dt, controls) {
+    if (!this.active || dt <= 0) return;
+    var gas = controls ? controls.throttle || 0 : 0;
+    var steer = controls ? controls.steer || 0 : 0;
+    var drift = controls && controls.handbrake, brake = controls && controls.brake;
+    var d = this.def, h = 1 / 120;
+    this.remainder += Math.min(dt, 0.25);
+    var slices = Math.floor(this.remainder / h + 1e-8);
+    this.remainder = Math.max(0, this.remainder - slices * h);
+    var p = this.pos;
+    for (var j = 0; j < slices; j++) {
+      var braking = brake || (gas && this.speed * gas < -0.1);
+      if (braking) {
+        var loss = (brake ? 26 : 35) * h;
+        this.speed = Math.sign(this.speed) * Math.max(0, Math.abs(this.speed) - loss);
+      } else {
+        this.speed += gas * d.accel * h * (gas < 0 ? 0.67 : 1);
+      }
+      this.speed *= Math.exp(-(drift ? 1.85 : gas ? 0.09 : 0.72) * h);
+      var top = this.health > 0 ? d.topSpeed : 0;
+      this.speed = Math.max(-Math.min(13, top), Math.min(top, this.speed));
+      var turn = Math.min(1, Math.abs(this.speed) / 5) / (1 + Math.abs(this.speed) * 0.017);
+      this.heading += steer * Math.sign(this.speed) * turn * (drift ? 2.75 : 1.9) * h;
+      var blend = 1 - Math.exp(-(drift ? d.grip * 0.23 : d.grip * 2.5) * h);
+      this.vx += (Math.sin(this.heading) * this.speed - this.vx) * blend;
+      this.vz += (Math.cos(this.heading) * this.speed - this.vz) * blend;
+      var x = p.x + this.vx * h, z = p.z + this.vz * h, hit = 0;
+      var obstacles = nearby(x, z);
+      for (var i = 0; i < obstacles.length; i++) {
+        var c = obstacles[i], dx = x - c.x, dz = z - c.z, r = c.r + 1.35;
+        if (dx * dx + dz * dz >= r * r) continue;
+        var norm = Math.hypot(dx, dz);
+        if (norm > 0.00001) { dx /= norm; dz /= norm; } else { dx = 1; dz = 0; }
+        x = c.x + dx * (r + 0.001); z = c.z + dz * (r + 0.001);
+        var inward = this.vx * dx + this.vz * dz;
+        if (inward < 0) { this.vx -= inward * dx; this.vz -= inward * dz; hit = Math.max(hit, -inward); }
+      }
+      if (this.driver === 'player') {
+        for (var k = 0; k < list.length; k++) {
+          var other = list[k];
+          if (other === this || !other.active) continue;
+          var rx = x - other.pos.x, rz = z - other.pos.z;
+          if (rx * rx + rz * rz > 16) continue;
+          var s = Math.sin(other.heading), co = Math.cos(other.heading);
+          var localX = rx * co - rz * s, localZ = rx * s + rz * co;
+          var w = 1.72, l = other.def.length / 2 + 0.85;
+          var sx = w - Math.abs(localX), sz = l - Math.abs(localZ);
+          if (sx <= 0 || sz <= 0) continue;
+          var nx, nz, push;
+          if (sx < sz) {
+            var side = localX < 0 ? -1 : 1;
+            nx = co * side; nz = -s * side; push = sx;
+          } else {
+            var end = localZ < 0 ? -1 : 1;
+            nx = s * end; nz = co * end; push = sz;
+          }
+          x += nx * (push + 0.001); z += nz * (push + 0.001);
+          var impact = this.vx * nx + this.vz * nz;
+          if (impact < 0) {
+            this.vx -= impact * nx; this.vz -= impact * nz; hit = Math.max(hit, -impact);
+            other.health = Math.max(0, other.health - Math.max(0, -impact - 6) * 0.34);
+          }
+        }
+      }
+      if (SF.world.isWater(x, z)) { x = p.x; this.vx = 0; hit = Math.max(hit, Math.abs(this.speed)); }
+      if (hit > 1) {
+        this.health = Math.max(0, this.health - Math.max(0, hit - 5) * 0.65);
+        this.speed *= Math.max(0, 1 - hit / (Math.abs(this.speed) + 1));
+      }
+      p.x = x; p.z = z;
+      this.spin -= this.speed * h / 0.36;
     }
-    return hit;
+    p.y = SF.world.groundY(p.x, p.z);
+    this.mesh.rotation.y = this.heading;
+    for (var w = 0; w < 4; w++) {
+      this.wheels[w].rotation.x = this.spin;
+      this.wheels[w].parent.rotation.y = w < 2 ? steer * 0.42 : 0;
+    }
   }
-  function step(car, dt, throttle, steer, brake, collide) {
-    const oldSpeed = car.speed;
-    car.speed += throttle * C.physics.acceleration * dt;
-    car.speed *= Math.exp(-(brake ? 3.2 : throttle ? 0.13 : 0.7) * dt);
-    car.speed = Math.max(-12, Math.min(C.physics.vehicleSpeed, car.speed));
-    car.heading += steer * C.physics.turnRate * Math.min(1, Math.abs(car.speed) / 12) * Math.sign(car.speed) * dt * (brake ? 1.6 : 1);
-    car.drift = (car.drift || 0) + (car.heading - (car.drift || 0)) * Math.min(1, dt * (brake ? 2.5 : 12));
-    car.pos.x += Math.sin(car.drift) * car.speed * dt; car.pos.z += Math.cos(car.drift) * car.speed * dt;
-    car.crashCooldown = Math.max(0, car.crashCooldown - dt);
-    let hit = collide !== false && resolve(car.pos, car.radius);
-    if (collide !== false) for (const other of all) {
-      if (other === car || !other.mesh.visible) continue;
-      const dx = car.pos.x - other.pos.x, dz = car.pos.z - other.pos.z, d = Math.hypot(dx, dz);
-      if (d < 4.3) { car.pos.x += (dx / (d || 1)) * (4.3 - d); car.pos.z += (dz / (d || 1)) * (4.3 - d); hit = true; }
-    }
-    if (hit) {
-      car.speed *= -0.25;
-      if (Math.abs(oldSpeed) > 9 && car.crashCooldown === 0) {
-        car.crashCooldown = 1; if (SF.peds) SF.peds.scare(car.pos.x, car.pos.z, 35);
-        if (SF.player && SF.player.inCar === car) { SF.player.hurt(Math.abs(oldSpeed) * 0.4); SF.police.addHeat(1); }
+  function reset(x, z, heading) {
+    this.pos.set(x, SF.world.groundY(x, z), z);
+    this.heading = this.mesh.rotation.y = heading;
+    this.speed = this.vx = this.vz = this.spin = this.remainder = 0;
+    this.health = 100; this.stolen = false;
+    this.active = this.mesh.visible = true;
+  }
+  function create(x, z, heading, defIdx) {
+    var d = defs[defIdx] || defs[1], colors = paint[defs.indexOf(d)], l = d.length;
+    var car = new THREE.Group(), color = colors[Math.floor(SF.random.next() * colors.length)];
+    part(car, rubber, 0, 0.46, 0, 1.89, 0.28, l);
+    part(car, color, 0, 0.76, 0, 1.85, 0.52, l - 0.05).castShadow = true;
+    var cabZ = defIdx === 3 ? 0.46 : -0.28;
+    var cabL = defIdx === 4 ? 3.22 : defIdx === 3 ? 1.6 : l * 0.49;
+    part(car, glass, 0, 0.98 + d.cabin / 2, cabZ, 1.57, d.cabin, cabL);
+    part(car, color, 0, 1 + d.cabin, cabZ - 0.05, 1.54, 0.11, cabL - 0.24);
+    if (defIdx === 3) part(car, rubber, 0, 1.03, -1.29, 1.53, 0.08, 1.78);
+    var wheels = [];
+    for (var i = 0; i < 4; i++) {
+      var side = i % 2 ? 1 : -1, pivot = new THREE.Group(), wheel = new THREE.Group();
+      pivot.position.set(side * 0.9, 0.37, (i < 2 ? 1 : -1) * l * 0.31);
+      wheel.add(new THREE.Mesh(tireGeo, rubber), new THREE.Mesh(hubGeo, alloy));
+      pivot.add(wheel); car.add(pivot); wheels.push(wheel);
+      if (i < 2) {
+        part(car, head, side * 0.63, 0.82, l / 2, 0.37, 0.16, 0.065);
+        part(car, tail, side * 0.67, 0.83, -l / 2, 0.32, 0.15, 0.065);
       }
     }
-    car.mesh.rotation.y = car.heading;
-    for (const w of car.wheels) w.rotation.x += car.speed * dt * 1.8;
+    var result = {mesh: car, pos: car.position, heading: heading, speed: 0, health: 100,
+      name: d.name, def: d, defIdx: defs.indexOf(d), stolen: false, driver: null,
+      locked: false, active: true, spin: 0, vx: 0, vz: 0, remainder: 0, wheels: wheels, update: simulate, reset: reset};
+    result.reset(x, z, heading); list.push(result); scene.add(car);
+    return result;
   }
-  function update(dt) {
-    for (const car of parked) {
-      if (SF.player && SF.player.inCar === car) {
-        const i = SF.input;
-        step(car, dt, Number(i.isDown('forward')) - Number(i.isDown('back')), Number(i.isDown('left')) - Number(i.isDown('right')), i.isDown('handbrake'));
-      } else if (Math.abs(car.speed) > 0.05) step(car, dt, 0, 0, true);
+  function nearestEnterable(x, z, maxDist) {
+    var best = null, limit = maxDist * maxDist;
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i];
+      if (!c.active || c.locked || c.health <= 0 || c.driver === 'cop' || c.driver === 'player' || Math.abs(c.speed) > 6) continue;
+      var dx = c.pos.x - x, dz = c.pos.z - z, distance = dx * dx + dz * dz;
+      if (distance <= limit) { limit = distance; best = c; }
     }
+    return best;
   }
-  // Curb parking avoids the existing city's unusually wide collision circles.
-  for (let i = 0; i < 16; i++) {
-    const car = createCar(); car.pos.set(roads[i % roads.length] + 7, 0, (Math.floor(i / roads.length) * 2 - 1) * 46);
-    resolve(car.pos, car.radius); parked.push(car);
+  SF.vehicles = {defs: defs, create: create, list: list, nearestEnterable: nearestEnterable,
+    clear: clear, nearbyColliders: nearby, step: step, half: half};
+  var parked = 0;
+  for (var slot = 0; slot < 180 && parked < 29; slot++) {
+    var cross = (Math.floor(SF.random.next() * 6) - 3) * step + step / 2;
+    var along = (Math.floor(SF.random.next() * 6) - 3) * step + 18 + SF.random.next() * 45;
+    var vertical = SF.random.next() < 0.5, side = SF.random.next() < 0.5 ? -1 : 1;
+    var x = vertical ? cross + side * 7 : along, z = vertical ? along : cross + side * 7;
+    if (!clear(x, z, 1.7) || nearestEnterable(x, z, 8)) continue;
+    var defIdx = parked === 8 || parked === 22 ? 5 : Math.floor(SF.random.next() * 5);
+    var c = create(x, z, vertical ? (side < 0 ? 0 : Math.PI) : side > 0 ? Math.PI / 2 : -Math.PI / 2, defIdx);
+    c.locked = parked === 22; parked++;
   }
-  SF.vehicles = { group, createCar, update, parked, all, resolve, step, box };
-})(window.SF);
+}());

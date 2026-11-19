@@ -1,26 +1,56 @@
-// Input contract: SF.input.isDown(action), pressed(action), pointer coordinates and consume().
-(function (SF) {
-  const held = Object.create(null), edges = Object.create(null);
-  const keyMap = { KeyW: 'forward', ArrowUp: 'forward', KeyS: 'back', ArrowDown: 'back', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right', ShiftLeft: 'run', ShiftRight: 'run', KeyE: 'interact', KeyF: 'shoot', Space: 'shoot', Escape: 'pause', KeyP: 'pause' };
-  const input = { x: 0, y: 0, buttons: 0, locked: false,
-    isDown(action) { return !!held[action]; },
-    pressed(action) { return !!edges[action]; },
-    consume() { for (const key of Object.keys(edges)) delete edges[key]; }
+(function () {
+  var keys = Object.create(null);
+  var edges = Object.create(null);
+  var lookDX = 0;
+  var lookDY = 0;
+  var locked = false;
+  var canvas = document.getElementById('game');
+  var codes = {
+    forward: ['KeyW','ArrowUp'], back: ['KeyS','ArrowDown'], left: ['KeyA','ArrowLeft'], right: ['KeyD','ArrowRight'],
+    sprint: ['ShiftLeft','ShiftRight'], jump: ['Space'], enter: ['KeyE','KeyF'], attack: [], reload: ['KeyR'],
+    weapon1: ['Digit1'], weapon2: ['Digit2'], weapon3: ['Digit3'], weapon4: ['Digit4'], weapon5: ['Digit5'],
+    radio: ['KeyN'], map: ['KeyM'], pause: ['Escape','KeyP']
   };
-  window.addEventListener('keydown', event => {
-    const action = keyMap[event.code];
-    if (!action) return;
-    if (!held[action]) edges[action] = true;
-    held[action] = true;
-    event.preventDefault();
+  var reverse = Object.create(null);
+  Object.keys(codes).forEach(function (action) { codes[action].forEach(function (code) { reverse[code] = action; }); });
+  function prevent(code) { return !!reverse[code] || code === 'Space'; }
+  window.addEventListener('keydown', function (event) {
+    var action = reverse[event.code];
+    if (prevent(event.code)) event.preventDefault();
+    if (action && !keys[action]) edges[action] = true;
+    if (action) keys[action] = true;
   });
-  window.addEventListener('keyup', event => { const action = keyMap[event.code]; if (action) held[action] = false; });
-  window.addEventListener('blur', () => { for (const key of Object.keys(held)) held[key] = false; });
-  window.addEventListener('mousemove', event => { input.x = event.clientX; input.y = event.clientY; });
-  window.addEventListener('mousedown', event => { input.buttons = event.buttons; if (event.button === 0) { edges.shoot = true; held.shoot = true; } });
-  window.addEventListener('mouseup', event => { input.buttons = event.buttons; if (event.button === 0) held.shoot = false; });
-  document.addEventListener('pointerlockchange', () => { input.locked = document.pointerLockElement === document.body; });
-  document.getElementById('game').addEventListener('contextmenu', event => event.preventDefault());
-  input.bindElement = element => element.addEventListener('click', event => { if (event.target.closest('#start')) { if (document.body.requestPointerLock) document.body.requestPointerLock(); } });
-  SF.input = input;
-})(window.SF);
+  window.addEventListener('keyup', function (event) {
+    var action = reverse[event.code];
+    if (action) keys[action] = false;
+  });
+  canvas.addEventListener('click', function () {
+    if (document.pointerLockElement !== canvas && canvas.requestPointerLock) canvas.requestPointerLock();
+  });
+  document.getElementById('start-screen').addEventListener('click', function () {
+    if (canvas.requestPointerLock) canvas.requestPointerLock();
+  });
+  canvas.addEventListener('mousedown', function (event) {
+    if (event.button === 0 && document.pointerLockElement === canvas) {
+      if (!keys.attack) edges.attack = true;
+      keys.attack = true;
+    }
+  });
+  window.addEventListener('mouseup', function (event) { if (event.button === 0) keys.attack = false; });
+  window.addEventListener('blur', function () { Object.keys(keys).forEach(function (action) { keys[action] = false; }); });
+  canvas.addEventListener('contextmenu', function (event) { event.preventDefault(); });
+  document.addEventListener('mousemove', function (event) {
+    if (document.pointerLockElement === canvas) { lookDX += event.movementX || 0; lookDY += event.movementY || 0; }
+  });
+  document.addEventListener('pointerlockchange', function () { locked = document.pointerLockElement === canvas; });
+  document.addEventListener('pointerlockerror', function () { locked = false; });
+  SF.input = {
+    // Support action names and the physical codes used by the player module.
+    isDown: function (action) { return !!keys[reverse[action] || action]; },
+    pressed: function (action) { action = reverse[action] || action; var wasPressed = !!edges[action]; edges[action] = false; return wasPressed; },
+    get lookDX() { return lookDX; },
+    get lookDY() { return lookDY; },
+    get locked() { return locked; },
+    clearLook: function () { lookDX = 0; lookDY = 0; }
+  };
+}());

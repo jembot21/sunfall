@@ -1,32 +1,38 @@
-(function (SF) {
+(function () {
   'use strict';
-  const params = new URLSearchParams(location.search), name = params.get('shot');
-  const shots = { active: !!name, name };
-  if (!name) { SF.shots = shots; return; }
-  if (params.has('seed')) SF.random.reseed(Number(params.get('seed')));
-  const player = SF.player;
-  function stageCar(car, x, z, heading) {
-    car.occupied = true; car.pos.set(x, 0, z); car.heading = heading; car.speed = 0; car.mesh.visible = true; car.mesh.rotation.y = heading;
+  var query=new URLSearchParams(window.location.search),raw=query.get('shot');
+  var number=raw!==null&&/^[0-3]$/.test(raw)?Number(raw):-1;
+  function stage(){
+    if(number<0)return false;SF.random.reseed(5);SF.police.reset();var p=SF.player;
+    p.respawn(0);p.cash=18450;p.rep=1720;p.health=94;p.armour=76;
+    var x=number===0||number===3?123:number===1?41:-205,z=number===0?35:number===1?-65:number===2?-55:30;
+    p.pos.set(x,0,z);p.yaw=number===0||number===3?Math.PI:0;
+    for(var i=1;i<5;i++)SF.weapons.unlock(i);
+    if(number===1||number===2){var car=SF.vehicles.create(x,z,0,0);p.enterCar(car);car.stolen=true;car.speed=number===1?39:31;car.vz=car.speed;}
+    var forward=number===0||number===3?-1:1;
+    for(var n=0;n<14;n++){
+      var pedestrian=SF.peds.list[n],px=x+(n%2?11:-11),pz=z+forward*(8+Math.floor(n/2)*8);
+      pedestrian.pos.set(px,0,pz);pedestrian.home=px;pedestrian.mesh.rotation.y=n%2?0:Math.PI;pedestrian.mesh.visible=true;
+      SF.peds.animate(pedestrian.mesh,n*0.7,0.5,false);
+    }
+    for(var t=0;t<8;t++){
+      var traffic=SF.traffic.fleet[t].car;traffic.reset(x+(t%2?4:-4),z+forward*(13+Math.floor(t/2)*14),t%2?Math.PI:0);traffic.driver='ai';traffic.speed=16;
+    }
+    if(number===2){
+      SF.police.air.altitude=24;SF.police.addHeat(SF.CONFIG.wantedThresholds[4]);SF.police.update(0);
+      for(var c=0;c<3;c++){var unit=SF.police.units[c];if(unit.car){unit.car.reset(x+(c-1)*6,z-14-c*10,0);unit.car.driver='cop';unit.pos.copy(unit.car.pos);unit.active=true;}}
+      SF.police.seenPlayer=true;
+    }
+    if(number===3){
+      SF.hud.say('Lena Voss','Wheelwoman','Dario, they are moving the ledger. Clear the street — I have your exit.');
+      SF.missions.start(SF.missions.list[3]);SF.weapons.equip(2);p.yaw=Math.PI;p.update(0);
+    }else {SF.missions.update(0.15);}
+    var camera=SF.render.camera;
+    if(number===0){camera.position.set(x+7,5,z+12);camera.lookAt(x,1.6,z-27);}
+    if(number===1){camera.position.set(x-7,5.2,z-13);camera.lookAt(x,1.5,z+30);}
+    if(number===2){camera.position.set(x-15,7,z-42);camera.lookAt(x,2,z+19);}
+    if(number===3){camera.position.set(x+4,3.4,z+8);camera.lookAt(x,1.3,z-22);}
+    document.getElementById('start-screen').style.display='none';SF.hud.setClock(4,'18:12');SF.hud.refresh();SF.render.update(0,p.pos);return true;
   }
-  if (name === 'chase') {
-    player.inCar = SF.vehicles.parked[0]; stageCar(player.inCar, 0, 0, 0); player.mesh.visible = false; player.pos.copy(player.inCar.pos); SF.police.wanted = 3;
-    const first = SF.police.spawn(-2.2, -6), second = SF.police.spawn(2.2, -11);
-    first.heading = second.heading = 0; first.speed = second.speed = 0; first.mesh.rotation.y = second.mesh.rotation.y = 0;
-    SF.render.camera.position.set(0, 5, 13); SF.render.camera.lookAt(0, 1.1, -5);
-  } else if (name === 'downtown') {
-    player.pos.set(4, 0, -6); SF.traffic.cars.forEach((c, i) => { c.pos.set((i - 10) * 5, 0, i % 2 ? 20 : -20); c.mesh.visible = i < 10; });
-    SF.render.camera.position.set(13, 7, 20); SF.render.camera.lookAt(0, 1.5, 0);
-  } else if (name === 'coast') {
-    player.inCar = SF.vehicles.parked[1]; stageCar(player.inCar, -453, -46, 0); player.mesh.visible = false; player.pos.copy(player.inCar.pos);
-    SF.render.camera.position.set(-453, 5.5, -61); SF.render.camera.lookAt(-453, 1.2, -35);
-  } else if (name === 'end') {
-    player.pos.copy(SF.missions.home).add(new THREE.Vector3(4, 0, -2)); player.mesh.visible = true; player.inCar = null; player.cash = 1240; SF.missions.current = null; SF.missions.storyDone = 5;
-    SF.render.camera.position.set(112, 4.5, 61); SF.render.camera.lookAt(103, 1.3, 44);
-    SF.hud.setStarted(true);
-  }
-  SF.hud.setStarted(true);
-  let frames = 0;
-  function ready() { SF.render.renderer.render(SF.render.scene, SF.render.camera); if (++frames >= 2) window.__SHOT_READY = true; else requestAnimationFrame(ready); }
-  requestAnimationFrame(ready);
-  SF.shots = shots;
-})(window.SF);
+  SF.shots={active:number>=0,number:number,stage:stage};
+}());

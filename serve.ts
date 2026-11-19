@@ -1,24 +1,25 @@
-// Local-only static server for game/; Node 22 standard library, no build step.
-import { createReadStream, statSync } from 'node:fs';
+// Local static playtest server: node serve.ts --port 8080
 import { createServer } from 'node:http';
-import { extname, resolve, sep } from 'node:path';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import { dirname, resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = resolve(fileURLToPath(new URL('./game/', import.meta.url)));
-const argPort = process.argv.indexOf('--port');
-const port = Number(argPort >= 0 ? process.argv[argPort + 1] : 8080);
-const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.json': 'application/json; charset=utf-8' };
-
-createServer((req, res) => {
-  let pathname;
-  try { pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); }
-  catch { res.writeHead(400).end('Bad request'); return; }
-  const relative = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  const file = resolve(root, relative);
-  if (file !== root && !file.startsWith(root + sep)) { res.writeHead(403).end('Forbidden'); return; }
+const root = resolve(dirname(fileURLToPath(import.meta.url)), 'game');
+const args = process.argv.slice(2);
+const portAt = args.indexOf('--port');
+const port = Number(portAt < 0 ? 8080 : args[portAt + 1]);
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid port');
+const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.json': 'application/json' };
+createServer(async (req, res) => {
   try {
-    if (!statSync(file).isFile()) throw new Error('Not a file');
-    res.writeHead(200, { 'Content-Type': mime[extname(file).toLowerCase()] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
-    createReadStream(file).pipe(res);
-  } catch { res.writeHead(404).end('Not found'); }
-}).listen(port, '127.0.0.1', () => console.log(`Sunfall local server: http://127.0.0.1:${port}`));
+    const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
+    const file = await realpath(resolve(root, '.' + (pathname === '/' ? '/index.html' : pathname)));
+    if (!file.startsWith(root + sep) || !(await stat(file)).isFile()) throw new Error('Outside game');
+    const body = await readFile(file);
+    res.writeHead(200, { 'Content-Type': mime[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+    res.end(body);
+  } catch {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not found');
+  }
+}).listen(port, '127.0.0.1', () => console.log(`Sunfall: http://127.0.0.1:${port}`));

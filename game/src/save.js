@@ -1,22 +1,25 @@
-(function (SF) {
+(function () {
   'use strict';
-  const key = 'sunfall-save-v2', version = 2, defaults = { version, cash: 80, storyDone: 0, pistolUnlocked: false, settings: { mute: false } };
-  const data = Object.assign({}, defaults);
-  const save = { data,
-    load() {
-      try { const parsed = JSON.parse(localStorage.getItem(key) || 'null'); if (parsed && typeof parsed === 'object' && parsed.version === version) { Object.assign(data, parsed); data.settings = Object.assign({}, defaults.settings, parsed.settings); } } catch (_) {}
-      if (SF.player) { SF.player.cash = Math.max(0, Number(data.cash) || 80); SF.player.pistolUnlocked = !!data.pistolUnlocked; }
-      if (SF.missions) SF.missions.loadProgress(data.storyDone || 0);
-      if (SF.audio) SF.audio.mute(!!data.settings.mute);
-      return data;
-    },
-    store() {
-      data.version = version; data.cash = SF.player ? SF.player.cash : data.cash; data.storyDone = SF.missions ? SF.missions.storyDone : data.storyDone;
-      data.pistolUnlocked = SF.player ? SF.player.pistolUnlocked : data.pistolUnlocked;
-      try { localStorage.setItem(key, JSON.stringify(data)); } catch (_) {}
-      return data;
-    },
-    reset() { Object.assign(data, JSON.parse(JSON.stringify(defaults))); try { localStorage.removeItem(key); } catch (_) {} if (SF.player) { SF.player.cash = 80; SF.player.pistolUnlocked = false; SF.player.health = 100; } if (SF.missions) SF.missions.reset(); }
-  };
-  SF.save = save;
-})(window.SF);
+  var key='sunfall-save-v1';
+  function bounded(value,min,max,fallback){return Number.isFinite(value)?Math.max(min,Math.min(max,value)):fallback;}
+  function save(){
+    try{
+      var w=SF.weapons,p=SF.player,m=SF.missions;
+      var reserves=w.ammo.map(function(a,i){return i?a.reserve+a.mag:0;});
+      localStorage.setItem(key,JSON.stringify({version:1,cash:p.cash,rep:p.rep,owned:w.owned.slice(),ammo:reserves,storyDone:m.storyDone,sideDone:m.sideDone,safehouseUnlocks:m.safehouseUnlocks.slice(),day:SF.day||1}));return true;
+    }catch(error){if(SF.hud)SF.hud.toast('Save unavailable · browser storage is disabled or full.');return false;}
+  }
+  function load(){
+    try{
+      var raw=localStorage.getItem(key);if(!raw)return false;var data=JSON.parse(raw);
+      if(!data||data.version!==1||!Array.isArray(data.owned)||!Array.isArray(data.ammo))return false;
+      var p=SF.player,w=SF.weapons,m=SF.missions;p.cash=bounded(data.cash,0,100000000,350);p.rep=bounded(data.rep,0,10000000,0);
+      for(var i=1;i<w.defs.length;i++){w.owned[i]=data.owned[i]===true;var total=Math.floor(bounded(data.ammo[i],0,w.defs[i].reserve+w.defs[i].mag,0));w.ammo[i].mag=Math.min(total,w.defs[i].mag);w.ammo[i].reserve=total-w.ammo[i].mag;}
+      w.owned[0]=true;m.storyDone=Math.floor(bounded(data.storyDone,0,8,0));m.sideDone=Math.floor(bounded(data.sideDone,0,1000000,0));
+      m.safehouseUnlocks=[0];if(Array.isArray(data.safehouseUnlocks)&&data.safehouseUnlocks.indexOf(1)>=0)m.safehouseUnlocks.push(1);
+      for(var j=0;j<m.storyDone;j++)if(m.list[j].unlock!==undefined)w.unlock(m.list[j].unlock);if(m.storyDone>=7)w.unlock(4);
+      SF.day=Math.floor(bounded(data.day,1,99999,1));return true;
+    }catch(error){return false;}
+  }
+  SF.save={key:key,save:save,load:load,reset:function(){try{localStorage.removeItem(key);return true;}catch(error){return false;}}};
+}());
