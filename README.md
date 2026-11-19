@@ -1,4 +1,8 @@
 # Sunfall
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/jembot21/sunfall/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/jembot21/sunfall/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+
 
 Solano Bay glows beneath a permanent coastal sunset. As Dario Venn, leave your Palma Strand flat, steal a ride, meet a crew, and build a reputation across a vivid city of beachfront roads, harbour yards, markets, towers, and hillside streets. Explore on foot or by car, take repeatable jobs, and survive the Bay Patrol while working toward the final score.
 
