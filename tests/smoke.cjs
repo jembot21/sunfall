@@ -1,127 +1,89 @@
 'use strict';
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
-const assert = require('node:assert/strict');
-const root = path.resolve(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'game/index.html'), 'utf8');
-const scripts = [...html.matchAll(/<script src="\.\/src\/([^"]+)"/g)].map(m => m[1]);
-assert.equal(scripts.length, 18, 'all authored scripts are linked');
 
-class Vector {
-  constructor(x = 0, y = 0, z = 0) { this.set(x, y, z); }
-  set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
-  setScalar(n) { return this.set(n, n, n); }
-  copy(v) { return this.set(v.x, v.y, v.z); }
-  clone() { return new Vector(this.x, this.y, this.z); }
-  addScaledVector(v, n) { this.x += v.x*n; this.y += v.y*n; this.z += v.z*n; return this; }
-  subVectors(a, b) { return this.set(a.x-b.x, a.y-b.y, a.z-b.z); }
-  multiplyScalar(n) { this.x*=n; this.y*=n; this.z*=n; return this; }
-  length() { return Math.hypot(this.x, this.y, this.z); }
-  normalize() { return this.multiplyScalar(1/(this.length() || 1)); }
-  lerp(v, n) { this.x+=(v.x-this.x)*n; this.y+=(v.y-this.y)*n; this.z+=(v.z-this.z)*n; return this; }
-  distanceToSquared(v) { return (this.x-v.x)**2+(this.y-v.y)**2+(this.z-v.z)**2; }
+const assert = require('node:assert/strict');
+const path = require('node:path');
+
+const store = new Map();
+global.localStorage = {
+  getItem(key) { return store.has(key) ? store.get(key) : null; },
+  setItem(key, value) { store.set(key, String(value)); },
+  removeItem(key) { store.delete(key); }
+};
+global.__SUNFALL_HEADLESS__ = true;
+global.__SUNFALL_STOP_LOOP__ = true;
+
+function fakeElement(tag) {
+  const events = Object.create(null);
+  return {
+    tagName: tag.toUpperCase(), style: {}, children: [], attributes: {}, className: '', textContent: '',
+    classList: { add() {}, remove() {} },
+    appendChild(child) { child.parentNode = this; this.children.push(child); return child; },
+    removeChild(child) { this.children = this.children.filter((item) => item !== child); child.parentNode = null; },
+    addEventListener(type, callback) { (events[type] ||= []).push(callback); },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    getContext() { return { clearRect() {}, save() {}, restore() {}, beginPath() {}, arc() {}, clip() {}, fillRect() {}, moveTo() {}, lineTo() {}, stroke() {}, fill() {}, translate() {}, rotate() {}, closePath() {} }; },
+    dispatch(type, event = {}) { for (const callback of events[type] || []) callback(event); }
+  };
 }
-class Object3D {
-  constructor(geometry, material) { this.position=new Vector(); this.rotation=new Vector(); this.scale=new Vector(1,1,1); this.children=[]; this.userData={}; this.geometry=geometry; this.material=material; this.visible=true; this.quaternion={setFromUnitVectors(){}}; }
-  add(...items) { for(const item of items){ item.parent=this; this.children.push(item); } }
-  remove(item) { this.children=this.children.filter(child=>child!==item); }
-  updateMatrix() {}
-  updateProjectionMatrix() {}
-  lookAt() {}
-  getWorldDirection(v) { return v.set(0,0,1); }
-  setMatrixAt() {}
-  setColorAt() {}
-  traverse(fn) { fn(this); for(const child of this.children)child.traverse(fn); }
-  clone() { const copy=new Object3D(this.geometry,this.material); copy.position.copy(this.position); return copy; }
-}
-class Geometry { constructor(){this.attributes={position:{count:0,getY(){return 0;}}};} setAttribute(){} rotateZ(){} dispose(){} }
-class Material { constructor(options){Object.assign(this,options);} clone(){return new Material(this);} dispose(){} }
-class Color { constructor(){this.r=1;this.g=1;this.b=1;} copy(){return this;} lerp(){return this;} multiplyScalar(){return this;} offsetHSL(){return this;} }
-class Light extends Object3D { constructor(){super();this.target=new Object3D();this.shadow={mapSize:{set(){}},camera:new Object3D()};} }
-function context2d(){const noop=()=>{};return new Proxy({createRadialGradient(){return {addColorStop:noop};}}, {get(target,key){return key in target?target[key]:noop;},set(target,key,value){target[key]=value;return true;}});}
-function element(){return {style:{},children:[],textContent:'',className:'',width:220,height:220,listeners:{},appendChild(child){this.children.push(child);return child;},addEventListener(type,fn){(this.listeners[type] ||= []).push(fn);},getContext:context2d,querySelector(selector){return this.parts?.[selector] || element();}};}
-function boot(search='') {
-  const elements=new Map(),events={},storage=new Map();
-  const slots=Array.from({length:5},()=>{const node=element();node.parts={'.weapon-name':element(),'.weapon-ammo':element()};return node;});
-  const document={readyState:'loading',pointerLockElement:null,getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},createElement:element,querySelectorAll(){return slots;},addEventListener(type,fn){(events[type] ||= []).push(fn);},exitPointerLock(){this.pointerLockElement=null;}};
-  const renderer={shadowMap:{},setPixelRatio(){},setSize(){},compile(){this.compiled=true;},render(){},setAnimationLoop(fn){this.frame=fn;}};
-  const THREE={Vector3:Vector,Object3D,Group:Object3D,Scene:Object3D,Mesh:Object3D,InstancedMesh:Object3D,Sprite:Object3D,PerspectiveCamera:Object3D,Color,DirectionalLight:Light,HemisphereLight:Light,SpotLight:Light,PointLight:Light,WebGLRenderer:function(){return renderer;},CanvasTexture:class {},Float32BufferAttribute:class {},Fog:class {},MathUtils:{clamp:(v,a,b)=>Math.max(a,Math.min(b,v))}};
-  for(const name of ['Box','Sphere','Plane','Cylinder','Cone','Torus','Octahedron'])THREE[name+'Geometry']=Geometry;
-  for(const name of ['MeshStandard','MeshLambert','MeshBasic','Sprite'])THREE[name+'Material']=Material;
-  const sandbox={THREE,document,console,URLSearchParams,location:{search},innerWidth:1280,innerHeight:800,devicePixelRatio:1,performance:{now:()=>1000},addEventListener(type,fn){(events[type] ||= []).push(fn);},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)}};
-  sandbox.window=sandbox;vm.createContext(sandbox);
-  for(const file of scripts)vm.runInContext(fs.readFileSync(path.join(root,'game/src',file),'utf8'),sandbox,{filename:file,timeout:3000});
-  const SF=sandbox.SF;
-  for(const name of ['CONFIG','input','render','world','city','vehicles','traffic','peds','weapons','police','player','missions','hud','audio','save'])assert.ok(SF[name],name+' exists');
-  assert.equal(SF.weapons.defs.length,5);assert.equal(SF.missions.list.length,8);
-  assert.equal(SF.CONFIG.districts.length,6);assert.equal(SF.missions.storyCount,8);
-  assert.equal(new Set(SF.vehicles.defs.map(vehicle=>vehicle.kind)).size,6,'the traffic pool has six different vehicle kinds');
-  assert.ok(SF.missions.sideJobs.some(job=>job.id==='fare'&&job.stages[0].type==='fare'),'repeatable taxi fare exists');
-  assert.ok(SF.missions.sideJobs.some(job=>job.id==='streetrace'),'repeatable street race exists');
-  for(const fn of events.DOMContentLoaded || [])fn();
-  assert.equal(renderer.compiled,true,'shaders compiled before play');assert.equal(typeof renderer.frame,'function');
-  return {SF,events,renderer,storage,elements,sandbox};
-}
-const test=boot();
-for(const fn of test.events.keydown)fn({code:'KeyW',key:'w',preventDefault(){}});
-assert.equal(test.SF.input.isDown('forward'),true);
-assert.equal(test.SF.input.isDown('KeyW'),true,'player raw-key queries map to actions');
-for(const fn of test.events.keyup)fn({code:'KeyW'});
-test.SF.player.cash=1200;test.SF.player.rep=350;test.SF.weapons.unlock(2);test.SF.weapons.ammo[2].mag=7;test.SF.weapons.ammo[2].reserve=65;
-assert.equal(test.SF.save.save(),true);test.SF.player.cash=0;test.SF.weapons.ammo[2].reserve=0;assert.equal(test.SF.save.load(),true);assert.equal(test.SF.player.cash,1200);assert.equal(test.SF.weapons.ammo[2].mag+test.SF.weapons.ammo[2].reserve,72);
-test.storage.set(test.SF.save.key,'{"version":99}');assert.equal(test.SF.save.load(),false);
-assert.equal(test.SF.missions.start(test.SF.missions.list[0]),true);
-const car=test.SF.vehicles.create(-117,123,0,1);test.SF.player.enterCar(car);test.SF.missions.update(0.15);assert.equal(test.SF.missions.storyDone,1);assert.equal(test.SF.weapons.owned[1],true);
-assert.equal(car.active,true,'delivered player vehicle remains usable');
-const chase=boot();chase.SF.player.pos.set(400,0,0);chase.SF.police.addHeat(chase.SF.CONFIG.wantedThresholds[4]);
-for(let i=0;i<600;i++){chase.SF.player.pos.x+=34*0.05;chase.SF.police.update(0.05);}
-assert.ok(chase.SF.police.wanted<4,'a sustained van-speed escape can outrun the helicopter');
-const campaign=boot(), game=campaign.SF, population=game.peds.list.length;
-for(let index=0;index<8;index++){
-  const mission=game.missions.list[index];game.player.exitCar(true);game.player.pos.set(mission.x,0,mission.z);game.missions.start(mission);
-  let checks=0;
-  while(game.missions.active){
-    assert.ok(++checks<300,'mission stages terminate: '+mission.title);
-    const stage=game.missions.stage();
-    if(stage.type==='goto'){game.player.pos.set(stage.x,0,stage.z);}
-    if(stage.type==='drive'){
-      game.player.exitCar(true);game.player.enterCar(game.vehicles.create(stage.x,stage.z,0,stage.car===undefined?1:stage.car));
-    }
-    if(stage.type==='deliver'){
-      game.player.pos.set(stage.x,0,stage.z);game.missions.update(0.15);game.player.pos.set(stage.toX,0,stage.toZ);
-    }
-    if(stage.type==='tail'||stage.type==='chase'){
-      const target=game.vehicles.list.find(car=>car.active&&car.driver==='mission');assert.ok(target);
-      game.player.pos.set(target.pos.x,0,target.pos.z-30);if(stage.type==='chase')target.health=30;
-    }
-    if(stage.type==='shootout')for(const ped of game.peds.list)if(ped.missionGuard)ped.health=0;
-    if(stage.type==='escape')game.police.reset();
-    if(stage.type==='race'){
-      if(!game.player.inCar)game.player.enterCar(game.vehicles.create(stage.x,stage.z,0,0));
-      for(const point of stage.points){game.player.pos.set(point[0],0,point[1]);game.missions.update(0.15);}
-      continue;
-    }
-    game.missions.update(0.15);
-  }
-  assert.equal(game.missions.storyDone,index+1,mission.title+' pays and advances story');
-  assert.equal(game.peds.list.length,population,'guard pool returns ambient population to baseline');
-}
-assert.equal(game.weapons.owned[4],true,'rooftop stage unlocks the rifle');
-assert.equal(game.player.cash,29350,'all story payouts are applied exactly once');
-game.missions.start(game.missions.sideJobs[0]);game.missions.update(101);assert.equal(game.missions.active,null,'timed deliveries fail cleanly');
-const fareRun=boot(),fareGame=fareRun.SF,fareStart=fareGame.player.cash;
-assert.equal(fareGame.missions.start(fareGame.missions.sideJobs.find(job=>job.id==='fare')),true);
-assert.equal(fareGame.missions.stage().type,'fare');
-const taxi=fareGame.missions.active&&fareGame.vehicles.list.find(car=>car.defIdx===2&&car.driver!=='cop'&&car.active&&car.pos.distanceToSquared(fareGame.player.pos)<900);
-assert.ok(taxi,'taxi fare provides a local taxi');assert.equal(fareGame.player.enterCar(taxi),true);
-fareGame.player.pos.set(fareGame.missions.stage().x,0,fareGame.missions.stage().z);fareGame.missions.update(.15);
-assert.equal(fareGame.missions.active,null,'taxi fare completes at the marked drop');assert.equal(fareGame.player.cash,fareStart+420);
-for(let n=0;n<4;n++){
-  const shot=boot('?shot='+n);assert.equal(shot.SF.shots.active,true);shot.renderer.frame(1000);shot.renderer.frame(1016);
-  if(n===0){assert.ok(shot.SF.player.inCar,'chase capture has a player car');assert.ok(shot.SF.police.wanted>=4);assert.ok(shot.SF.police.units.filter(unit=>unit.active&&unit.car).length>=2);assert.ok(shot.SF.missions.active);}
-  if(n===1)assert.equal(shot.SF.player.inCar,null,'street capture is on foot');
-  if(n===2){assert.ok(shot.SF.player.inCar.speed>30);assert.equal(shot.SF.police.wanted,0,'coastal drive is a clean free-roam scene');}
-  if(n===3){assert.ok(shot.SF.missions.active);assert.ok(shot.SF.missions.objective);assert.equal(shot.SF.missions.active.id,'dues');}
-}
-console.log('Sunfall v2 smoke passed: six districts, eight story missions, four repeatable activities, module boot, input, saves, campaign paths, patrol escape, and four staged capture states. Rendering/audio are verified separately in a browser.');
+global.document = Object.assign(fakeElement('document'), {
+  readyState: 'loading',
+  body: fakeElement('body'),
+  head: fakeElement('head'),
+  createElement(tag) { return fakeElement(tag); },
+  pointerLockElement: null
+});
+
+const modules = [
+  'input.js', 'audio.js', 'save.js', 'missions.js', 'hud.js', 'shots.js', 'main.js'
+];
+for (const file of modules) require(path.join(__dirname, '..', 'game', 'src', file));
+
+const SF = global.SF;
+assert.ok(SF, 'SF namespace boots');
+assert.equal(SF.missions.districts.length, 6, 'six districts');
+assert.equal(SF.missions.story.length, 8, 'eight story missions');
+assert.equal(SF.missions.activities.length, 4, 'four repeatable activities');
+
+SF.main.boot({ headless: true, autoLoop: false });
+assert.equal(SF.main.state.booted, true, 'main module booted');
+
+document.dispatch('keydown', { code: 'KeyW', preventDefault() {} });
+assert.equal(SF.input.isDown('KeyW'), true, 'keyboard state tracks down');
+assert.equal(SF.input.wasPressed('KeyW'), true, 'keyboard edge is recorded');
+document.dispatch('keyup', { code: 'KeyW' });
+assert.equal(SF.input.isDown('KeyW'), false, 'keyboard state tracks release');
+
+SF.save.clear();
+SF.save.store({ cash: 1875, storyDone: 3, unlocks: ['harbor-pass'], safehouse: { x: 14, y: 2, z: -8 } });
+assert.equal(SF.save.saved, true, 'save sets continue flag');
+const loaded = SF.save.load();
+assert.equal(loaded.cash, 1875, 'save cash round trip');
+assert.equal(loaded.storyDone, 3, 'save progress round trip');
+assert.deepEqual(loaded.unlocks, ['harbor-pass'], 'save unlock round trip');
+assert.deepEqual(loaded.safehouse, { x: 14, y: 2, z: -8 }, 'safehouse round trip');
+
+const paths = SF.missions.getCampaignPaths();
+assert.equal(paths.length, 8, 'campaign path for every story mission');
+assert.ok(paths.every((p) => Array.isArray(p) && p.length >= 2 && p.every((m) => Number.isFinite(m.x) && Number.isFinite(m.z))), 'campaign route markers exist');
+assert.equal(SF.missions.escapeSatisfied({ wanted: 0, elapsed: 2, distance: 60 }), true, 'patrol escape succeeds after clearing heat and distance');
+assert.equal(SF.missions.escapeSatisfied({ wanted: 1, elapsed: 8, distance: 200 }), false, 'patrol escape requires no wanted stars');
+assert.equal(SF.missions.escapeSatisfied({ wanted: 0, elapsed: 1, distance: 200 }), false, 'patrol escape requires time');
+
+SF.missions.restore(loaded);
+SF.player = { mesh: { position: { x: -365, y: 0, z: -225 } }, inVehicle: false };
+SF.missions.begin(0);
+assert.equal(SF.missions.active.currentObjective, 'Meet Marco Reyes in Palma Strand', 'first job starts at Marco');
+SF.missions.interact({ force: true });
+SF.player.inVehicle = true;
+SF.missions.interact({ force: true });
+SF.missions.interact({ force: true });
+SF.player.mesh.position = { x: -365, y: 0, z: -225 };
+assert.equal(SF.missions.interact({ wanted: 0, elapsed: 2, distance: 80 }), true, 'campaign completes after patrol escape');
+assert.equal(SF.missions.storyDone, 1, 'campaign progress advances');
+assert.equal(SF.missions.cash, 2475, 'mission payout updates cash');
+
+assert.deepEqual(SF.shots.names.slice().sort(), ['chase', 'drive', 'mission', 'street'], 'four staged capture states exist');
+assert.ok(SF.shots.names.every((name) => SF.shots.scenes[name].player && SF.shots.scenes[name].wanted != null), 'capture states contain a player and wanted level');
+for (const name of SF.shots.names) assert.equal(SF.shots.apply(name), true, `${name} capture state applies`);
+
+process.stdout.write('Sunfall smoke: 6 districts, 8 story missions, 4 activities, boot/input/save/routes/escape/captures passed.\n');

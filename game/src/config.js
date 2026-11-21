@@ -1,30 +1,54 @@
-window.SF = window.SF || {};
-SF.CONFIG = {
-  version: 2,
-  city: { name: 'Solano Bay', sunset: '19:24', gridStep: 82, cityEdge: 287, coastX: -260 },
-  grid: { block: 64, road: 18, blocks: 7, coastX: -260, halfCity: 287 },
-  palette: {
-    sky: { top: '#44365e', mid: '#bd6965', horizon: '#e99c55', fog: '#d38b70', sun: '#ffd08a' },
-    buildings: ['#c48a69','#e0b080','#d78d72','#94aaa2','#a9afa4','#cf9e77','#828c91','#d3a276','#8d817d','#a9c0b8','#dfc08c'],
-    cars: ['#bd5145','#e5a84f','#2a9d9a','#5d7188','#637d69','#e7ddc8','#b87b58','#f1c45e'],
-    sand: '#e5c48d', asphalt: '#5a5149', marking: '#f0dfbd', sidewalk: '#c7b39a', ocean: '#247f87', palm: '#48775a',
-    teal: '#42d8cc', coral: '#f26357', amber: '#f4b75e'
-  },
-  districts: [
-    { name: 'Palma Strand', x1: -420, x2: -220, z1: -320, z2: 320 },
-    { name: 'Marina', x1: -220, x2: -30, z1: -320, z2: 65 },
-    { name: 'Old Town', x1: -220, x2: -30, z1: 65, z2: 320 },
-    { name: 'Downtown', x1: -30, x2: 105, z1: -320, z2: 320 },
-    { name: 'Hillcrest', x1: 105, x2: 290, z1: -320, z2: 95 },
-    { name: 'Ironworks Port', x1: 105, x2: 290, z1: 95, z2: 320 }
-  ],
-  wantedThresholds: [0, 18, 44, 82, 132, 205],
-  bustedFee: 450, wastedFee: 280,
-  prices: { pistol: 450, smg: 1250, shotgun: 1800, rifle: 3200, ammo: 75, armour: 250, repair: 180 },
-  repLevels: [
-    { name: 'New Face', threshold: 0 }, { name: 'Runner', threshold: 100 },
-    { name: 'Hustler', threshold: 300 }, { name: 'Operator', threshold: 700 },
-    { name: 'Shot Caller', threshold: 1400 }, { name: 'Bay Legend', threshold: 2600 }
-  ],
-  safehouses: [{ name: 'Palma Strand Flat', x: -272, z: 42 }, { name: 'Old Town Warehouse', x: -117, z: 123 }]
-};
+/* Sunfall foundation. World units are metres; Y is up, the coast is west. */
+(function (S) {
+  'use strict';
+  S.Config = Object.freeze({
+    seed: 2047,
+    palette: Object.freeze({
+      skyAmber: 0xffba68, skyCoral: 0xed796d, skyViolet: 0x554975,
+      sea: 0x117f83, seaHighlight: 0x49b5ac, sand: 0xdca96b,
+      concrete: 0xc99373, asphalt: 0x51424a, sidewalk: 0xb88b74,
+      cash: '#ffc56b', danger: '#ff7069', objective: '#50ebce',
+      window: 0xffcf80, ink: '#171b2c', fog: 0xc48079
+    }),
+    city: Object.freeze({
+      columns: 9, rows: 9, block: 64, road: 14, sidewalk: 4,
+      minX: -288, maxX: 288, minZ: -288, maxZ: 288,
+      coastX: -310, beachWidth: 48, seaX: -358, groundY: 0,
+      buildingInset: 10, floorHeight: 3.4, lampSpacing: 64
+    }),
+    districts: Object.freeze([
+      { id: 'palma', name: 'Palma Strand', col: [0, 2], row: [0, 3],
+        colors: [0xe3a36e, 0xd57869, 0xc6a05d], height: [7, 16], density: 0.78,
+        props: { palms: 0.95, benches: 0.7, crates: 0.05 } },
+      { id: 'marina', name: 'Marina', col: [0, 2], row: [4, 8],
+        colors: [0xc58371, 0x5e9994, 0xd8ac7b], height: [9, 23], density: 0.88,
+        props: { palms: 0.8, benches: 0.7, crates: 0.25 } },
+      { id: 'oldtown', name: 'Old Town', col: [3, 5], row: [0, 3],
+        colors: [0xc9694f, 0xd59659, 0xa96164], height: [10, 22], density: 0.96,
+        props: { palms: 0.4, benches: 0.65, crates: 0.2 } },
+      { id: 'downtown', name: 'Downtown', col: [3, 5], row: [4, 8],
+        colors: [0x547c86, 0xa06e78, 0x9b826e], height: [25, 78], density: 0.98,
+        props: { palms: 0.55, benches: 0.7, crates: 0.1 } },
+      { id: 'hillcrest', name: 'Hillcrest', col: [6, 8], row: [0, 3],
+        colors: [0xd8a477, 0xbd826b, 0xb39970], height: [7, 18], density: 0.7,
+        props: { palms: 0.85, benches: 0.3, crates: 0.05 } },
+      { id: 'port', name: 'Ironworks Port', col: [6, 8], row: [4, 8],
+        colors: [0x966354, 0x647f7c, 0xb77e48], height: [8, 25], density: 0.88,
+        props: { palms: 0.1, benches: 0.1, crates: 0.95 } }
+    ]),
+    render: Object.freeze({
+      fov: 58, near: 0.2, far: 1450, pixelRatio: 1.75,
+      fogNear: 170, fogFar: 920, exposure: 0.92,
+      shadowSize: 1024, shadowRange: 145, sunIntensity: 1.8,
+      hemisphereIntensity: 0.7, sunPosition: [-190, 150, -110]
+    }),
+    camera: Object.freeze({
+      distance: 10, height: 5, lookHeight: 1.5, followRate: 5,
+      titleRadius: 410, titleHeight: 175, titleSpeed: 0.025
+    }),
+    water: Object.freeze({ amplitude: 0.32, speed: 0.7, segments: 60 }),
+    spawn: Object.freeze({ x: -224, y: 0.2, z: -249, heading: Math.PI }),
+    tuning: Object.freeze({ trafficSpacing: 64, pedestrianSpacing: 32,
+      districtCheckInterval: 0.25, markerHeight: 3, maxDelta: 0.05 })
+  });
+})(window.Sunfall = window.Sunfall || {});

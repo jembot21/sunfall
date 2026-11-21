@@ -1,25 +1,25 @@
-(function () {
+(function (S) {
   'use strict';
-  // Stable world population and capture staging share this seeded stream.
-  var seed = 0x20f411;
-  function next() {
-    seed = (seed + 0x6D2B79F5) | 0;
-    var value = seed;
-    value = Math.imul(value ^ (value >>> 15), value | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-  }
-  var api = {
-    next:next, random:next,
-    range:function(min,max){return min+next()*(max-min);},
-    pick:function(items){return items[Math.floor(next()*items.length)];},
-    chance:function(probability){return next()<probability;},
-    reseed:function(value){seed=(Number(value)||0)|0;},
-    shuffle:function(items){
-      var copy=items.slice();
-      for(var i=copy.length-1;i>0;i--){var j=Math.floor(next()*(i+1)),t=copy[i];copy[i]=copy[j];copy[j]=t;}
-      return copy;
-    }
+  // Mulberry32: each subsystem can fork a stable stream without coupling layouts.
+  S.Random = function (seed) {
+    let state = seed >>> 0;
+    const initial = state;
+    return {
+      next: function () {
+        state = (state + 0x6D2B79F5) >>> 0;
+        let t = Math.imul(state ^ (state >>> 15), 1 | state);
+        t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      },
+      range: function (min, max) { return min + this.next() * (max - min); },
+      int: function (min, max) { return Math.floor(this.range(min, max + 1)); },
+      pick: function (items) { return items[this.int(0, items.length - 1)]; },
+      chance: function (probability) { return this.next() < probability; },
+      fork: function (label) {
+        let hash = initial;
+        for (let i = 0; i < label.length; i++) hash = Math.imul(hash ^ label.charCodeAt(i), 16777619);
+        return S.Random(hash >>> 0);
+      }
+    };
   };
-  SF.random=api;SF.rng=api;
-}());
+})(window.Sunfall = window.Sunfall || {});

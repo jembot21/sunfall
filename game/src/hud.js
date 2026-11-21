@@ -1,108 +1,143 @@
-(function () {
+(function (root) {
   'use strict';
-  var ids = ['chapter-label','mission-title','mission-objective','stage-progress','stage-count','next-hint',
-    'day-label','clock','cash','wanted-stars','wanted-status','hud-police','police-rows',
-    'health-fill','health-value','armour-fill','armour-value','rep-fill','rep-value','rep-rank','district-name',
-    'hud-vehicle','vehicle-name','stolen-tag','vehicle-condition','speed','gear','hud-dialogue','portrait',
-    'speaker-name','speaker-role','dialogue-text','hud-toast','hud-radio','radio-track','map-overlay','map-legend',
-    'busted','wasted','busted-fee','wasted-fee','hud-mission','hud-action','action-label'];
-  var node = Object.create(null), cache = Object.create(null), frame = 0, accumulator = 0, day = 1, time = '17:40';
-  for (var i=0;i<ids.length;i++) node[ids[i]]=document.getElementById(ids[i]);
-  var slots = document.querySelectorAll('.weapon-slot'), toastTime = 0, radioTime = 0, dialogueTime = 0;
-  var queue = [], current = null, mapOpen = false, previousStars = 0, previousMission = null, starTimer = 0;
-  var mini = document.getElementById('minimap'), fullMap = document.getElementById('city-map');
-  var miniCtx = mini.getContext('2d'), fullCtx = fullMap.getContext('2d');
-
-  function text(id,value){value=String(value);if(cache[id]!==value){node[id].textContent=value;cache[id]=value;}}
-  function style(id,key,value){var k=id+':'+key;if(cache[k]!==value){node[id].style[key]=value;cache[k]=value;}}
-  function width(id,n){style(id,'width',Math.max(0,Math.min(100,n))+'%');}
-  function show(id,on,display){style(id,'display',on?(display||'block'):'none');}
-  function say(who,role,copy){if(queue.length>=3)queue.shift();queue.push({who:who,role:role,text:copy});}
-  function toast(copy){text('hud-toast',copy);style('hud-toast','opacity','1');toastTime=3.2;}
-  function dot(ctx,x,z,color,r,cx,cz,scale,size){
-    ctx.fillStyle=color;ctx.beginPath();ctx.arc(size/2+(x-cx)*scale,size/2+(z-cz)*scale,r,0,Math.PI*2);ctx.fill();
+  var SF = root.SF = root.SF || {};
+  var ui = {}, initialized = false, pulseTimer = 0, lastStars = 0, lastDistrict = '';
+  var COLORS = { ink: '#07141b', panel: 'rgba(6, 18, 25, .88)', teal: '#54e0cf', coral: '#ff7068', paper: '#f4eadb', muted: '#9eb1b4' };
+  function el(tag, cls, parent) {
+    var node = root.document.createElement(tag); if (cls) node.className = cls;
+    if (parent) parent.appendChild(node); return node;
   }
-  function map(ctx,size,worldMap){
-    var p=SF.player, cx=worldMap?-65:p.pos.x, cz=worldMap?0:p.pos.z, scale=worldMap?size/690:size/260;
-    ctx.clearRect(0,0,size,size);ctx.fillStyle='#c3aa88';ctx.fillRect(0,0,size,size);
-    var sea=size/2+(-260-cx)*scale;
-    ctx.fillStyle='#247d83';ctx.fillRect(0,0,Math.max(0,sea),size);
-    ctx.fillStyle='#dfc492';ctx.fillRect(Math.max(0,sea-9*scale),0,Math.max(0,12*scale),size);
-    ctx.fillStyle='#625c55';
-    for(var k=-7;k<=7;k++){
-      var center=k*82+41, road=18*scale;
-      ctx.fillRect(size/2+(center-cx)*scale-road/2,0,road,size);
-      ctx.fillRect(0,size/2+(center-cz)*scale-road/2,size,road);
-    }
-    ctx.fillStyle='#f0dfbd';ctx.globalAlpha=.72;
-    for(var r=-6;r<=6;r++){
-      var centerRoad=r*82;
-      ctx.fillRect(size/2+(centerRoad-cx)*scale-0.5,0,1,size);
-      ctx.fillRect(0,size/2+(centerRoad-cz)*scale-0.5,size,1);
-    }ctx.globalAlpha=1;
-    if(worldMap){
-      ctx.fillStyle='#fff0d7';ctx.textAlign='center';ctx.font='bold 15px Impact, sans-serif';
-      for(var d=0;d<SF.CONFIG.districts.length;d++){
-        var zone=SF.CONFIG.districts[d];
-        ctx.fillText(zone.name,size/2+((zone.x1+zone.x2)/2-cx)*scale,size/2+((zone.z1+zone.z2)/2-cz)*scale);
-      }
-    }
-    var jobs=SF.missions.sideJobs;
-    for(var j=0;j<jobs.length;j++)dot(ctx,jobs[j].x,jobs[j].z,jobs[j].id==='fare'?'#ffbf68':'#42d8cc',worldMap?5:3,cx,cz,scale,size);
-    var story=SF.missions.list[Math.min(SF.missions.storyDone,SF.missions.list.length-1)];
-    if(story)dot(ctx,story.x,story.z,'#42d8cc',worldMap?6:4,cx,cz,scale,size);
-    var target=SF.missions.blip;
-    if(target){
-      ctx.strokeStyle='#42d8cc';ctx.lineWidth=worldMap?3:2;ctx.beginPath();ctx.moveTo(size/2+(p.pos.x-cx)*scale,size/2+(p.pos.z-cz)*scale);ctx.lineTo(size/2+(target.x-cx)*scale,size/2+(target.z-cz)*scale);ctx.stroke();
-      dot(ctx,target.x,target.z,'#42d8cc',worldMap?8:5,cx,cz,scale,size);
-    }
-    var units=SF.police.units;
-    for(var u=0;u<units.length;u++)if(units[u].active&&(worldMap||units[u].pos.distanceToSquared(p.pos)<190*190))dot(ctx,units[u].pos.x,units[u].pos.z,'#ff685b',worldMap?5:3,cx,cz,scale,size);
-    if(SF.police.air.active)dot(ctx,SF.police.air.pos.x,SF.police.air.pos.z,'#ff685b',worldMap?6:4,cx,cz,scale,size);
-    ctx.save();ctx.translate(size/2+(p.pos.x-cx)*scale,size/2+(p.pos.z-cz)*scale);ctx.rotate(-(p.yaw||0));
-    ctx.fillStyle='#fff';ctx.strokeStyle='#24323a';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,10);ctx.lineTo(-7,-7);ctx.lineTo(0,-4);ctx.lineTo(7,-7);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
-    ctx.fillStyle='#fff';ctx.font='bold 11px system-ui';ctx.textAlign='left';ctx.fillText('N ↑',8,16);
+  function style(node, values) { if (!node || !node.style) return; Object.keys(values).forEach(function (k) { node.style[k] = values[k]; }); }
+  function panel(node) { style(node, { color: COLORS.paper, background: COLORS.panel, border: '1px solid rgba(84,224,207,.28)', borderRadius: '8px', boxShadow: '0 10px 34px rgba(0,0,0,.32)', font: '600 14px/1.35 system-ui, sans-serif', textShadow: '0 1px 2px #000' }); }
+  function init() {
+    if (initialized || !root.document || !root.document.body) return ui;
+    initialized = true;
+    var css = el('style', '', root.document.head || root.document.body);
+    css.textContent = '.sf-hud{position:fixed;inset:0;pointer-events:none;z-index:20;font-family:system-ui,sans-serif;color:#f4eadb}.sf-hud *{box-sizing:border-box}.sf-map{position:absolute;left:24px;bottom:24px;width:190px;height:190px;border-radius:50%;overflow:hidden;border:2px solid rgba(240,234,219,.85);box-shadow:0 5px 25px #0009;background:rgba(5,20,26,.84)}.sf-top{position:absolute;right:26px;top:22px;text-align:right;padding:10px 15px;min-width:172px}.sf-banner{position:absolute;left:50%;top:24px;transform:translate(-50%,-140%);opacity:0;transition:transform .42s cubic-bezier(.2,.8,.2,1),opacity .32s;background:rgba(6,18,25,.92);border:1px solid rgba(84,224,207,.55);padding:13px 24px;border-radius:8px;min-width:300px;text-align:center}.sf-banner.visible{transform:translate(-50%,0);opacity:1}.sf-prompt{position:absolute;bottom:42px;left:50%;transform:translateX(-50%);padding:9px 18px;min-width:120px;text-align:center}.sf-dialogue{position:absolute;left:50%;bottom:122px;transform:translateX(-50%);max-width:min(680px,80vw);padding:13px 22px;text-align:center}.sf-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(3,10,16,.73);pointer-events:auto}.sf-card{width:min(480px,90vw);padding:30px;background:rgba(7,20,27,.96);border:1px solid rgba(84,224,207,.4);border-radius:12px;text-align:center;box-shadow:0 20px 70px #0009}.sf-card button{pointer-events:auto;background:#54e0cf;color:#08191e;border:0;padding:12px 20px;border-radius:5px;margin:7px;font-weight:800;cursor:pointer}.sf-complete{position:absolute;left:50%;top:35%;transform:translate(-50%,-50%);padding:22px 38px;text-align:center}.sf-star-pulse{animation:sfPulse .34s ease-out}@keyframes sfPulse{50%{transform:scale(1.22);filter:brightness(1.8)}}';
+    css.textContent += '.sf-card h1{font:900 64px/.95 Impact,sans-serif;letter-spacing:.04em;margin:0 0 24px}.sf-banner{max-width:550px}.sf-banner>div:first-child{color:#54e0cf;font-size:12px;text-transform:uppercase;letter-spacing:.16em;margin-bottom:5px}.sf-tracker{position:absolute;left:24px;top:24px;padding:12px 16px;width:240px;font-size:12px}.sf-menu>:not(.sf-overlay){display:none!important}';
+    ui.root = el('div', 'sf-hud', root.document.body); ui.root.setAttribute('aria-live', 'polite');
+    ui.tracker=el('div','sf-tracker',ui.root);panel(ui.tracker);
+    ui.map = el('canvas', 'sf-map', ui.root); ui.map.width = 380; ui.map.height = 380; ui.mapCtx = ui.map.getContext && ui.map.getContext('2d');
+    ui.top = el('div', 'sf-top', ui.root); panel(ui.top);
+    ui.cash = el('div', '', ui.top); ui.cash.style.fontSize = '20px';
+    ui.stars = el('div', '', ui.top); ui.stars.style.fontSize = '24px'; ui.stars.style.letterSpacing = '3px';
+    ui.banner = el('div', 'sf-banner', ui.root); panel(ui.banner); ui.bannerTitle = el('div', '', ui.banner); ui.bannerText = el('div', '', ui.banner);
+    ui.prompt = el('div', 'sf-prompt', ui.root); panel(ui.prompt); ui.prompt.style.display = 'none';
+    ui.dialogue = el('div', 'sf-dialogue', ui.root); panel(ui.dialogue); ui.dialogue.style.display = 'none';
+    ui.complete = el('div', 'sf-complete', ui.root); panel(ui.complete); ui.complete.style.display = 'none';
+    return ui;
   }
-  function update(dt){
-    frame++;accumulator+=dt;toastTime=Math.max(0,toastTime-dt);radioTime=Math.max(0,radioTime-dt);dialogueTime=Math.max(0,dialogueTime-dt);
-    if(starTimer){starTimer-=dt;if(starTimer<=0)node['wanted-stars'].classList.remove('gain');}
-    if(accumulator<.09&&frame%2)return;accumulator=0;
-    var p=SF.player,w=SF.weapons,pol=SF.police,m=SF.missions,active=m.active,s=m.stage();
-    text('day-label','DAY '+day);text('clock',time);text('cash','$'+Math.floor(p.cash).toLocaleString('en-US'));
-    text('wanted-stars','★'.repeat(pol.wanted)+'☆'.repeat(5-pol.wanted));text('wanted-status',pol.wanted?(pol.seenPlayer?'IN SIGHT':'SEARCHING'):'CLEAR');
-    style('wanted-status','color',pol.wanted?'#ff8376':'#d3e4d9');
-    if(pol.wanted>previousStars){node['wanted-stars'].className='stars';void node['wanted-stars'].offsetWidth;node['wanted-stars'].className='stars gain';starTimer=.62;}
-    previousStars=pol.wanted;
-    text('chapter-label',active?active.chapter:'SOLANO BAY · '+(m.storyDone===m.list.length?'FREE ROAM':'NEXT LEAD'));
-    text('mission-title',active?active.title:m.nearest?m.nearest.title:'Explore the city');
-    text('mission-objective',active?m.objective:m.nearest?'Meet '+m.nearest.giver+' in '+SF.world.districtAt(m.nearest.x,m.nearest.z)+'.':'Cruise the bay. Choose your next move.');
-    width('stage-progress',m.progress*100);text('stage-count',active?'STAGE '+(m.stageIndex+1)+' / '+active.stages.length:m.storyDone+' / '+m.list.length+' story jobs');
-    text('next-hint',s&&s.limit?Math.ceil(m.timer)+' s':s&&s.type==='chase'?'CATCH / DISABLE':s&&s.type==='tail'?Math.round(m.progress*100)+'% tail':'E · interact');
-    if(active&&previousMission!==active){node['hud-mission'].className='panel';void node['hud-mission'].offsetWidth;node['hud-mission'].className='panel accepted';}
-    else if(!active)node['hud-mission'].className='panel';
-    previousMission=active;
-    for(var k=0;k<slots.length;k++){
-      var slot=slots[k],def=w.defs[k],ammo=w.ammo[k],name=slot.querySelector('.weapon-name'),rounds=slot.querySelector('.weapon-ammo');
-      if(name){name.textContent=w.owned[k]?def.name:'LOCKED';rounds.textContent=k?ammo.mag+' / '+ammo.reserve:'∞';slot.className='weapon-slot'+(w.owned[k]?'':' locked')+(w.cur===k?' active':'');}
-    }
-    width('health-fill',p.health);width('armour-fill',p.armour);text('health-value',Math.ceil(p.health));text('armour-value',Math.ceil(p.armour));
-    var levels=SF.CONFIG.repLevels,rank=0;for(var lv=1;lv<levels.length;lv++)if(p.rep>=levels[lv].threshold)rank=lv;
-    text('rep-rank',levels[rank].name);text('rep-value',p.rep);width('rep-fill',rank===levels.length-1?100:(p.rep-levels[rank].threshold)/(levels[rank+1].threshold-levels[rank].threshold)*100);
-    text('district-name',SF.world.districtAt(p.pos.x,p.pos.z));show('hud-vehicle',!!p.inCar);
-    if(p.inCar){var car=p.inCar;text('vehicle-name',car.name);show('stolen-tag',car.stolen);width('vehicle-condition',car.health);text('speed',Math.round(Math.abs(car.speed)*3.6));text('gear',Math.abs(car.speed)<.5?'N':car.speed<0?'R':'D');}
-    if(!dialogueTime){current=queue.shift()||null;if(current){dialogueTime=4.1;text('portrait',current.who.charAt(0));text('speaker-name',current.who);text('speaker-role',current.role);text('dialogue-text',current.text);}}
-    show('hud-dialogue',!!current&&dialogueTime>0,'flex');style('hud-toast','opacity',toastTime?'1':'0');show('hud-radio',radioTime>0);
-    if(frame%2===0){map(miniCtx,mini.width,false);if(mapOpen)map(fullCtx,fullMap.width,true);}
+  function position(obj) {
+    if (!obj) return { x: 0, z: 0 };
+    if (obj.position) obj = obj.position;
+    return { x: Number(obj.x) || 0, z: Number(obj.z != null ? obj.z : obj.y) || 0 };
   }
-  function prompt(copy){text('action-label',copy||'');style('hud-action','display',copy?'block':'none');}
-  SF.hud={
-    say:say,toast:toast,update:update,prompt:prompt,
-    refresh:function(){accumulator=.1;update(0);},
-    setClock:function(d,t){day=d;time=t;},
-    radioToast:function(station,track){text('radio-track',station+' · '+track);radioTime=4;},
-    showEnd:function(kind,fee){show(kind,true,'grid');text(kind+'-fee',fee||'');},
-    hideEnd:function(){show('busted',false);show('wasted',false);},
-    toggleMap:function(close){mapOpen=close===false?false:!mapOpen;show('map-overlay',mapOpen,'grid');accumulator=.1;return mapOpen;},
-    get mapOpen(){return mapOpen;}
+  function playerPosition() { return position(SF.player && (SF.player.position || SF.player.mesh || SF.player)); }
+  function wanted() {
+    var p = SF.police || {}, w = p.stars != null ? p.stars : p.wanted || p.wantedState || {};
+    var level = typeof w === 'number' ? w : (w.level != null ? w.level : (w.stars != null ? w.stars : (p.wantedLevel != null ? p.wantedLevel : p.level)));
+    return Math.max(0, Math.min(5, Math.floor(Number(level) || 0)));
+  }
+  function district() {
+    var p = playerPosition(), ds = SF.missions && SF.missions.districts || [];
+    if (!ds.length) return '';
+    var nearest = ds[0], best = Infinity;
+    ds.forEach(function (d) { var dx = p.x - d.x, dz = p.z - d.z, q = dx * dx + dz * dz; if (q < best) { best = q; nearest = d; } });
+    return nearest.name || '';
+  }
+  function policePositions() {
+    var p = SF.police || {}, raw = p.units || p.cars || p.patrols || p.officers || [];
+    if (!Array.isArray(raw)) raw = Object.keys(raw).map(function (k) { return raw[k]; });
+    return raw.map(function(u) { return position(u.car ? u.car.mesh : u.mesh || u); });
+  }
+  function drawMap() {
+    var c = ui.mapCtx; if (!c) return;
+    var size = ui.map.width, center = size / 2, scale = size / 260, p = playerPosition(), mission = SF.missions && SF.missions.active;
+    c.clearRect(0, 0, size, size); c.save(); c.beginPath(); c.arc(center, center, center - 2, 0, Math.PI * 2); c.clip();
+    c.fillStyle = 'rgba(8,28,34,.96)'; c.fillRect(0, 0, size, size);
+    var ds = SF.missions && SF.missions.districts || [], d = district();
+    ds.forEach(function (area, i) {
+      var x = center + (area.x - p.x) * scale, y = center + (area.z - p.z) * scale;
+      c.fillStyle = area.name === d ? 'rgba(33,119,112,.27)' : (i % 2 ? 'rgba(255,255,255,.035)' : 'rgba(84,224,207,.045)');
+      c.beginPath(); c.arc(x, y, 67, 0, Math.PI * 2); c.fill();
+    });
+    c.strokeStyle = 'rgba(196,211,203,.28)'; c.lineWidth = 3;
+    for (var i = 0; i < 10; i++) {
+      var road=-288+i*64, ox=center+(road-p.x)*scale, oz=center+(road-p.z)*scale;
+      c.beginPath(); c.moveTo(ox, 0); c.lineTo(ox, size); c.stroke();
+      c.beginPath(); c.moveTo(0, oz); c.lineTo(size, oz); c.stroke();
+    }
+    if (mission && mission.path) {
+      c.beginPath(); c.strokeStyle = 'rgba(65,222,207,.72)'; c.lineWidth = 5;
+      mission.path.forEach(function (m, i) { var x = center + (m.x - p.x) * scale, y = center + (m.z - p.z) * scale; if (!i) c.moveTo(x, y); else c.lineTo(x, y); }); c.stroke();
+    }
+    if (mission && mission.nearestMarker) {
+      var m = mission.nearestMarker, mx = center + (m.x - p.x) * scale, my = center + (m.z - p.z) * scale;
+      c.fillStyle = COLORS.teal; c.beginPath(); c.arc(mx, my, 9, 0, Math.PI * 2); c.fill(); c.strokeStyle = '#e3fff9'; c.lineWidth = 2; c.stroke();
+    }
+    policePositions().forEach(function (q) {
+      var x = center + (q.x - p.x) * scale, y = center + (q.z - p.z) * scale;
+      c.fillStyle = COLORS.coral; c.beginPath(); c.arc(x, y, 7, 0, Math.PI * 2); c.fill();
+    });
+    if(SF.police && SF.police.drawMinimap) SF.police.drawMinimap(c,function(x,z){return {x:center+(x-p.x)*scale,y:center+(z-p.z)*scale};},scale);
+    var yaw = SF.player ? SF.player.heading : 0;
+    c.save(); c.translate(center, center); c.rotate(-yaw); c.fillStyle = '#fff'; c.beginPath(); c.moveTo(0, -16); c.lineTo(11, 12); c.lineTo(0, 7); c.lineTo(-11, 12); c.closePath(); c.fill(); c.restore(); c.restore();
+  }
+  function update(dt) {
+    init(); if (!initialized) return;
+    var money = SF.missions && SF.missions.cash;
+    if (money == null && SF.save && SF.save.data) money = SF.save.data.cash;
+    ui.cash.textContent = '$' + Math.floor(Number(money) || 0).toLocaleString('en-US');
+    var stars = wanted(); ui.stars.textContent = '';
+    for (var i = 1; i <= 5; i++) {
+      var star = el('span', '', ui.stars); star.textContent = i <= stars ? '★' : '☆';
+      star.style.color = i <= stars ? '#ffd466' : 'rgba(244,234,219,.38)';
+      star.setAttribute('aria-label', i <= stars ? 'wanted star filled' : 'wanted star empty');
+    }
+    if (stars > lastStars) { ui.stars.classList.add('sf-star-pulse'); pulseTimer = 0.4; }
+    if (pulseTimer > 0) { pulseTimer -= Number(dt) || 0; if (pulseTimer <= 0) ui.stars.classList.remove('sf-star-pulse'); }
+    lastStars = stars; drawMap();
+    var active = SF.missions && SF.missions.active;
+    if (active) {
+      ui.bannerTitle.textContent = active.title;
+      ui.bannerText.textContent = active.objectiveText;
+      ui.banner.classList.add('visible');
+      var p=playerPosition(),m=active.nearestMarker;
+      ui.tracker.textContent='SOLANO BAY · '+district()+' · '+(active.stage+1)+' / '+active.stages.length+' · '+(m?Math.round(Math.hypot(p.x-m.x,p.z-m.z)):0)+' m';
+      ui.tracker.style.display='block';
+    } else {
+      ui.tracker.style.display='none';
+    }
+    var now = district();
+    if (now && now !== lastDistrict) { lastDistrict = now; if (SF.hud.onDistrictChange) SF.hud.onDistrictChange(now); }
+  }
+  function acceptMission(title, text) { init(); if (!initialized) return; ui.bannerTitle.textContent = title || ''; ui.bannerText.textContent = text || ''; ui.banner.classList.add('visible'); }
+  function setObjective(title, text) { init(); if (!initialized) return; ui.bannerTitle.textContent = title || ''; ui.bannerText.textContent = text || ''; ui.banner.classList.add('visible'); }
+  function prompt(text) { init(); if (!initialized) return; ui.prompt.textContent = text || ''; ui.prompt.style.display = text ? 'block' : 'none'; }
+  function dialogue(line, speaker) { init(); if (!initialized) return; ui.dialogue.textContent = line ? (speaker ? speaker + ': ' : '') + line : ''; ui.dialogue.style.display = line ? 'block' : 'none'; }
+  function showComplete(title, cash) { init(); if (!initialized) return; ui.complete.innerHTML = ''; var h = el('div', '', ui.complete); h.textContent = 'JOB COMPLETE'; h.style.color = COLORS.teal; h.style.letterSpacing = '3px'; var t = el('div', '', ui.complete); t.textContent = title || ''; t.style.fontSize = '22px'; t.style.margin = '8px 0'; var p = el('div', '', ui.complete); p.textContent = '+$' + (Number(cash) || 0).toLocaleString('en-US'); p.style.color = '#ffd466'; ui.complete.style.display = 'block'; root.setTimeout(function () { if (ui.complete) ui.complete.style.display = 'none'; }, 3000); }
+  function overlay(title, subtitle, buttons) {
+    init(); if (!initialized) return null;
+    if (ui.overlay && ui.overlay.parentNode) ui.overlay.parentNode.removeChild(ui.overlay);
+    var shade = el('div', 'sf-overlay', ui.root), card = el('div', 'sf-card', shade); panel(card);
+    var h = el('h1', '', card); h.textContent = title; h.style.color = COLORS.teal;
+    var p = el('p', '', card); p.textContent = subtitle || '';
+    (buttons || []).forEach(function (b) { var button = el('button', '', card); button.type = 'button'; button.textContent = b.label; button.addEventListener('click', b.onClick); });
+    ui.overlay = shade; return shade;
+  }
+  function closeOverlay() { if (ui.overlay && ui.overlay.parentNode) ui.overlay.parentNode.removeChild(ui.overlay); ui.overlay = null; }
+  SF.hud = {
+    init: init,
+    update: update,
+    prompt: prompt,
+    dialogue: dialogue,
+    acceptMission: acceptMission,
+    setObjective: setObjective,
+    showComplete: showComplete,
+    showPause: function (resume, quit) { return overlay('Paused', 'The bay can wait.', [{ label: 'Resume', onClick: resume || closeOverlay }, { label: 'Title screen', onClick: quit || closeOverlay }]); },
+    showTitle: overlay,
+    closeOverlay: closeOverlay,
+    onDistrictChange: function (name) { if (SF.main && SF.main.flashDistrict) SF.main.flashDistrict(name); },
+    get elements() { init(); return ui; }
   };
-}());
+})(globalThis);

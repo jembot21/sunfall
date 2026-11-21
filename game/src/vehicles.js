@@ -1,195 +1,189 @@
-(function () {
+(() => {
   'use strict';
-  var scene = SF.render.scene, list = [];
-  var defs = [
-    { name: 'Falco GT', kind: 'sports coupe', colors: ['#a94f43','#c17f50','#455d67'], topSpeed: 53, accel: 19, grip: 7, health: 100, cabin: 0.56, length: 4.4 },
-    { name: 'Palma Sedan', kind: 'sedan', colors: ['#397a80','#e7ddc8','#a45d54'], topSpeed: 40, accel: 13, grip: 6, health: 100, cabin: 0.74, length: 4.6 },
-    { name: 'Brisa Taxi', kind: 'taxi', colors: ['#d7aa58','#eee4cd','#bb744c'], topSpeed: 36, accel: 14, grip: 8, health: 100, cabin: 0.78, length: 3.7 },
-    { name: 'Ironworks Hauler', kind: 'truck', colors: ['#b9734f','#667e75','#d0b16f'], topSpeed: 39, accel: 12, grip: 5, health: 120, cabin: 0.88, length: 5.8 },
-    { name: 'Solano Van', kind: 'van', colors: ['#71847b','#e5dfd0','#b17862'], topSpeed: 34, accel: 11, grip: 5, health: 110, cabin: 1.18, length: 4.8 },
-    { name: 'Sundial RS', kind: 'sports car', colors: ['#d5ad55','#b85750','#438d88'], topSpeed: 63, accel: 24, grip: 9, health: 100, cabin: 0.48, length: 4.3 }
-  ];
-  var box = new THREE.BoxGeometry(1, 1, 1);
-  var tireGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.29, 10);
-  var hubGeo = new THREE.CylinderGeometry(0.21, 0.21, 0.303, 8);
-  tireGeo.rotateZ(Math.PI / 2); hubGeo.rotateZ(Math.PI / 2);
-  var rubber = new THREE.MeshStandardMaterial({color: 0x22212a, roughness: 0.91});
-  var alloy = new THREE.MeshStandardMaterial({color: 0xb2aeb9, metalness: 0.65, roughness: 0.43});
-  var glass = new THREE.MeshStandardMaterial({color: 0x35484b, metalness: 0.38, roughness: 0.24});
-  var head = new THREE.MeshStandardMaterial({color: 0xfff2c4, emissive: 0xffd99c, emissiveIntensity: 1.4});
-  var tail = new THREE.MeshStandardMaterial({color: 0xf14458, emissive: 0xe42142, emissiveIntensity: 0.85});
-  var paint = defs.map(function (d) {
-    return d.colors.map(function (color) { return new THREE.MeshStandardMaterial({color: color, metalness: 0.38, roughness: 0.34}); });
-  });
-  var step = SF.CONFIG.grid.block + SF.CONFIG.grid.road, half = SF.CONFIG.grid.halfCity;
-  var cellSize = 32, gridStart = -480, gridSize = 32, cells = [];
-  for (var i = 0; i < gridSize * gridSize; i++) cells.push([]);
-  SF.city.colliders.forEach(function (c) {
-    for (var z = cell(c.z - c.r - 3); z <= cell(c.z + c.r + 3); z++) {
-      for (var x = cell(c.x - c.r - 3); x <= cell(c.x + c.r + 3); x++) cells[z * gridSize + x].push(c);
+  const SF = globalThis.SF ??= {};
+  const kinds = {
+    sportsCoupe: { name: 'Sports coupe', width: 1.75, length: 3.7, roof: 1.15, speed: 27, turn: 1.85, color: 0x49a6af },
+    sedan: { name: 'Sedan', width: 1.8, length: 4.2, roof: 1.38, speed: 22, turn: 1.55, color: 0x7a8396 },
+    taxi: { name: 'Taxi', width: 1.83, length: 4.25, roof: 1.43, speed: 21, turn: 1.5, color: 0xf5b619 },
+    truck: { name: 'Truck', width: 2.22, length: 5.6, roof: 2.25, speed: 16, turn: 1.05, color: 0x566d55 },
+    van: { name: 'Van', width: 2.04, length: 4.85, roof: 2.04, speed: 18, turn: 1.18, color: 0xdbd3be },
+    sportsCar: { name: 'Sports car', width: 1.96, length: 4.04, roof: 1.02, speed: 32, turn: 2.02, color: 0xd34255 }
+  };
+  const instances = [];
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+  function spawn(kind, position, options = {}) {
+    const T = SF.THREE ?? globalThis.THREE, scene = SF.render?.scene;
+    if (!T || !scene) return null;
+    const spec = kinds[kind] ?? kinds.sedan;
+    const { width, length, roof } = spec;
+    const mesh = new T.Group();
+    const origin = SF.player.positionOf(position);
+    mesh.position.set(origin?.x ?? 0, origin?.y ?? 0, origin?.z ?? 0);
+    mesh.rotation.y = options.heading ?? 0;
+    const material = (color, emission = 0) =>
+      new T.MeshStandardMaterial({ color, emissive: emission, emissiveIntensity: 0 });
+    const paint = material(options.color ?? spec.color);
+    const glass = material(0x263946), rubber = material(0x1a1b20), steel = material(0x737981);
+    const front = material(0xffedc8, 0xffe5ad), rear = material(0x9f1728, 0xff1530);
+    function box(parent, mat, w, h, d, x, y, z) {
+      const part = new T.Mesh(new T.BoxGeometry(w, h, d), mat);
+      part.position.set(x, y, z);
+      part.castShadow = true;
+      parent.add(part);
+      return part;
     }
-  });
-  function cell(n) { return Math.min(gridSize - 1, Math.max(0, Math.floor((n - gridStart) / cellSize))); }
-  function nearby(x, z) { return cells[cell(z) * gridSize + cell(x)]; }
-  function clear(x, z, radius) {
-    var obstacles = nearby(x, z);
-    for (var i = 0; i < obstacles.length; i++) {
-      var c = obstacles[i], dx = x - c.x, dz = z - c.z, r = c.r + radius;
-      if (dx * dx + dz * dz < r * r) return false;
+    box(mesh, paint, width, .47, length, 0, .56, 0);
+    box(mesh, steel, width * .97, .13, length * 1.015, 0, .38, 0);
+    const cabLength = length * (kind === 'truck' ? .31 : kind === 'van' ? .72 : .49);
+    const cabZ = kind === 'truck' ? length * .24 : -.07;
+    box(mesh, glass, width * .85, roof - .76, cabLength, 0, (roof + .76) / 2, cabZ);
+    box(mesh, paint, width * .89, .09, cabLength * 1.02, 0, roof, cabZ);
+    if (kind === 'truck') box(mesh, paint, width * .94, 1.26, length * .51, 0, 1.33, -length * .21);
+    if (kind === 'van') box(mesh, paint, width * .87, .94, length * .36, 0, 1.35, -length * .23);
+    const wheels = [], lights = [];
+    for (const side of [-1, 1]) {
+      box(mesh, front, .29, .12, .06, side * width * .34, .63, length / 2);
+      box(mesh, rear, .28, .12, .06, side * width * .34, .63, -length / 2);
+      if (T.SpotLight && options.headlights) {
+        const lamp = new T.SpotLight(0xffe0a6, 0, 18, .38, .55, 1.5);
+        lamp.position.set(side * width * .34, .63, length / 2 + .15);
+        lamp.target.position.set(side * width * .34, .05, length / 2 + 13);
+        mesh.add(lamp, lamp.target);
+        lights.push(lamp);
+      }
+      for (const axle of [-1, 1]) {
+        const pivot = new T.Group();
+        pivot.position.set(side * width * .48, .31, axle * length * .31);
+        mesh.add(pivot);
+        const roll = new T.Group();
+        pivot.add(roll);
+        const tire = new T.Mesh(new T.CylinderGeometry(.31, .31, .23, 12), rubber);
+        tire.rotation.z = Math.PI / 2;
+        tire.castShadow = true;
+        roll.add(tire);
+        box(roll, steel, .245, .08, .42, 0, 0, 0);
+        wheels.push({ pivot, roll, steer: axle === 1 });
+      }
     }
-    return !SF.world.isWater(x, z);
-  }
-  function part(parent, material, x, y, z, w, h, l) {
-    var mesh = new THREE.Mesh(box, material);
-    mesh.position.set(x, y, z); mesh.scale.set(w, h, l); parent.add(mesh);
-    return mesh;
-  }
-  function simulate(dt, controls) {
-    if (!this.active || dt <= 0) return;
-    var gas = controls ? controls.throttle || 0 : 0;
-    var steer = controls ? controls.steer || 0 : 0;
-    var drift = controls && controls.handbrake, brake = controls && controls.brake;
-    var d = this.def, h = 1 / 120;
-    this.remainder += Math.min(dt, 0.25);
-    var slices = Math.floor(this.remainder / h + 1e-8);
-    this.remainder = Math.max(0, this.remainder - slices * h);
-    var p = this.pos;
-    for (var j = 0; j < slices; j++) {
-      var braking = brake || (gas && this.speed * gas < -0.1);
-      if (braking) {
-        var loss = (brake ? 26 : 35) * h;
-        this.speed = Math.sign(this.speed) * Math.max(0, Math.abs(this.speed) - loss);
-      } else {
-        this.speed += gas * d.accel * h * (gas < 0 ? 0.67 : 1);
-      }
-      this.speed *= Math.exp(-(drift ? 1.85 : gas ? 0.09 : 0.72) * h);
-      var top = this.health > 0 ? d.topSpeed : 0;
-      this.speed = Math.max(-Math.min(13, top), Math.min(top, this.speed));
-      var turn = Math.min(1, Math.abs(this.speed) / 5) / (1 + Math.abs(this.speed) * 0.017);
-      this.heading += steer * Math.sign(this.speed) * turn * (drift ? 2.75 : 1.9) * h;
-      var blend = 1 - Math.exp(-(drift ? d.grip * 0.23 : d.grip * 2.5) * h);
-      this.vx += (Math.sin(this.heading) * this.speed - this.vx) * blend;
-      this.vz += (Math.cos(this.heading) * this.speed - this.vz) * blend;
-      var x = p.x + this.vx * h, z = p.z + this.vz * h, hit = 0;
-      var obstacles = nearby(x, z);
-      for (var i = 0; i < obstacles.length; i++) {
-        var c = obstacles[i], dx = x - c.x, dz = z - c.z, r = c.r + 1.35;
-        if (dx * dx + dz * dz >= r * r) continue;
-        var norm = Math.hypot(dx, dz);
-        if (norm > 0.00001) { dx /= norm; dz /= norm; } else { dx = 1; dz = 0; }
-        x = c.x + dx * (r + 0.001); z = c.z + dz * (r + 0.001);
-        var inward = this.vx * dx + this.vz * dz;
-        if (inward < 0) { this.vx -= inward * dx; this.vz -= inward * dz; hit = Math.max(hit, -inward); }
-      }
-      if (this.driver === 'player') {
-        for (var k = 0; k < list.length; k++) {
-          var other = list[k];
-          if (other === this || !other.active) continue;
-          var rx = x - other.pos.x, rz = z - other.pos.z;
-          if (rx * rx + rz * rz > 16) continue;
-          var s = Math.sin(other.heading), co = Math.cos(other.heading);
-          var localX = rx * co - rz * s, localZ = rx * s + rz * co;
-          var w = 1.72, l = other.def.length / 2 + 0.85;
-          var sx = w - Math.abs(localX), sz = l - Math.abs(localZ);
-          if (sx <= 0 || sz <= 0) continue;
-          var nx, nz, push;
-          if (sx < sz) {
-            var side = localX < 0 ? -1 : 1;
-            nx = co * side; nz = -s * side; push = sx;
-          } else {
-            var end = localZ < 0 ? -1 : 1;
-            nx = s * end; nz = co * end; push = sz;
-          }
-          x += nx * (push + 0.001); z += nz * (push + 0.001);
-          var impact = this.vx * nx + this.vz * nz;
-          if (impact < 0) {
-            this.vx -= impact * nx; this.vz -= impact * nz; hit = Math.max(hit, -impact);
-            other.health = Math.max(0, other.health - Math.max(0, -impact - 6) * 0.34);
-          }
+    if (kind === 'taxi') {
+      const sign = material(0xffe8a6, 0xffb83a);
+      sign.emissiveIntensity = .45;
+      box(mesh, sign, .66, .21, .31, 0, roof + .13, cabZ);
+      if (globalThis.document) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 80;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffe7a4';
+        ctx.fillRect(0, 0, 256, 80);
+        ctx.fillStyle = '#251a12';
+        ctx.font = 'bold 64px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('TAXI', 128, 63);
+        const texture = new T.CanvasTexture(canvas);
+        if (T.SRGBColorSpace) texture.colorSpace = T.SRGBColorSpace;
+        const label = new T.MeshBasicMaterial({ map: texture });
+        for (const side of [-1, 1]) {
+          const face = new T.Mesh(new T.PlaneGeometry(.64, .2), label);
+          face.position.set(0, roof + .13, cabZ + side * .157);
+          face.rotation.y = side === 1 ? 0 : Math.PI;
+          mesh.add(face);
         }
       }
-      if (SF.world.isWater(x, z)) { x = p.x; this.vx = 0; hit = Math.max(hit, Math.abs(this.speed)); }
-      if (hit > 1) {
-        this.health = Math.max(0, this.health - Math.max(0, hit - 5) * 0.65);
-        this.speed *= Math.max(0, 1 - hit / (Math.abs(this.speed) + 1));
+    }
+    const car = { kind, spec, mesh, wheels, front, rear, lights, speed: 0, steer: 0,
+      driver: options.driver ?? null, locked: Boolean(options.locked), brake: false };
+    mesh.userData.vehicle = car;
+    scene.add(mesh);
+    instances.push(car);
+    return car;
+  }
+
+  function doorPoints(car) {
+    car.mesh.updateMatrixWorld(true);
+    return [-1, 1].map(side => car.mesh.localToWorld(car.mesh.position.clone()
+      .set(side * (car.spec.width / 2 + .51), 0, .35)));
+  }
+
+  function drive(car, dt, input) {
+    const throttle = clamp(input.throttle ?? input.moveZ ?? 0, -1, 1);
+    car.steer = clamp(input.steer ?? input.moveX ?? 0, -1, 1);
+    car.brake = Boolean(input.brake) || throttle * car.speed < 0;
+    car.speed += throttle * 13 * dt;
+    car.speed *= Math.exp(-dt * (car.brake ? 4 : throttle ? .34 : .85));
+    car.speed = clamp(car.speed, -7, car.spec.speed);
+    const yaw = car.mesh.rotation.y += car.steer * car.spec.turn * dt * clamp(car.speed / 4, -1, 1);
+    const position = car.mesh.position;
+    const x = position.x, z = position.z;
+    position.x += Math.sin(yaw) * car.speed * dt;
+    position.z += Math.cos(yaw) * car.speed * dt;
+    const hit = instances.some(other => other !== car && other.mesh.position.distanceToSquared(position) <
+      ((car.spec.width + other.spec.width) * .46) ** 2) || SF.city?.buildings?.some(b=>position.x>b.minX-1 && position.x<b.maxX+1 && position.z>b.minZ-1 && position.z<b.maxZ+1);
+    if (hit) {
+      position.x = x;
+      position.z = z;
+      car.speed *= -.18;
+      car.brake = true;
+    }
+    SF.player.constrain(position, car.spec.length / 2);
+  }
+
+  SF.vehicles = {
+    kinds, instances, spawn, drive, doorPoints,
+    remove(car) {
+      const index = instances.indexOf(car);
+      if (index < 0) return;
+      instances.splice(index, 1);
+      car.mesh.removeFromParent();
+      const materials = new Set();
+      car.mesh.traverse(node => {
+        node.geometry?.dispose();
+        if (node.material) materials.add(node.material);
+      });
+      for (const mat of materials) {
+        mat.map?.dispose();
+        mat.dispose();
       }
-      p.x = x; p.z = z;
-      this.spin -= this.speed * h / 0.36;
-    }
-    p.y = SF.world.groundY(p.x, p.z);
-    this.mesh.rotation.y = this.heading;
-    for (var w = 0; w < 4; w++) {
-      this.wheels[w].rotation.x = this.spin;
-      this.wheels[w].parent.rotation.y = w < 2 ? steer * 0.42 : 0;
-    }
-  }
-  function reset(x, z, heading) {
-    this.pos.set(x, SF.world.groundY(x, z), z);
-    this.heading = this.mesh.rotation.y = heading;
-    this.speed = this.vx = this.vz = this.spin = this.remainder = 0;
-    this.health = 100; this.stolen = false;
-    this.active = this.mesh.visible = true;
-  }
-  function create(x, z, heading, defIdx) {
-    var d = defs[defIdx] || defs[1], colors = paint[defs.indexOf(d)], l = d.length;
-    var car = new THREE.Group(), color = colors[Math.floor(SF.random.next() * colors.length)];
-    part(car, rubber, 0, 0.46, 0, 1.89, 0.28, l);
-    part(car, color, 0, 0.76, 0, 1.85, 0.52, l - 0.05).castShadow = true;
-    var cabZ = defIdx === 3 ? 0.46 : -0.28;
-    var cabL = defIdx === 4 ? 3.22 : defIdx === 3 ? 1.6 : l * 0.49;
-    part(car, glass, 0, 0.98 + d.cabin / 2, cabZ, 1.57, d.cabin, cabL);
-    part(car, color, 0, 1 + d.cabin, cabZ - 0.05, 1.54, 0.11, cabL - 0.24);
-    if (defIdx === 3) {
-      part(car, rubber, 0, 0.95, -1.42, 1.6, 0.16, 2.15);
-      part(car, color, -0.79, 1.08, -1.42, 0.08, 0.54, 2.1);
-      part(car, color, 0.79, 1.08, -1.42, 0.08, 0.54, 2.1);
-    }
-    if (defIdx === 2) {
-      var roofSign = document.createElement('canvas'); roofSign.width = 128; roofSign.height = 48;
-      var signCtx = roofSign.getContext('2d'); signCtx.fillStyle = '#f1bd62'; signCtx.fillRect(0,0,128,48);
-      signCtx.fillStyle = '#34403c'; signCtx.font = 'bold 29px system-ui'; signCtx.textAlign = 'center'; signCtx.textBaseline = 'middle'; signCtx.fillText('TAXI',64,25);
-      var signTexture = new THREE.CanvasTexture(roofSign); signTexture.encoding = THREE.sRGBEncoding;
-      var sign = new THREE.Mesh(new THREE.BoxGeometry(0.76,0.31,0.38), new THREE.MeshStandardMaterial({map:signTexture,emissive:'#d99b44',emissiveIntensity:0.25}));
-      sign.position.set(0,1.34+d.cabin,0.05); car.add(sign);
-    }
-    var wheels = [];
-    for (var i = 0; i < 4; i++) {
-      var side = i % 2 ? 1 : -1, pivot = new THREE.Group(), wheel = new THREE.Group();
-      pivot.position.set(side * 0.9, 0.37, (i < 2 ? 1 : -1) * l * 0.31);
-      wheel.add(new THREE.Mesh(tireGeo, rubber), new THREE.Mesh(hubGeo, alloy));
-      pivot.add(wheel); car.add(pivot); wheels.push(wheel);
-      if (i < 2) {
-        part(car, head, side * 0.63, 0.82, l / 2, 0.37, 0.16, 0.065);
-        part(car, tail, side * 0.67, 0.83, -l / 2, 0.32, 0.15, 0.065);
+    },
+    nearestDoor(position) {
+      if (!position) return null;
+      let nearest = null, distance = 1.65;
+      for (const car of instances) {
+        if (car.locked || Math.abs(car.speed) > 5) continue;
+        const gap = Math.min(...doorPoints(car).map(door => door.distanceTo(position)));
+        if (gap < distance) {
+          nearest = car;
+          distance = gap;
+        }
+      }
+      return nearest;
+    },
+    take(car, player) {
+      if (!car || car.locked || car.driver === player || !instances.includes(car) ||
+          Math.abs(car.speed) > 5 || !doorPoints(car).some(door => door.distanceTo(player.position) < 1.65)) return false;
+      car.driver = player;
+      SF.police?.report('theft', player.position);
+      return true;
+    },
+    update(dt) {
+      const dark = SF.world?.isDusk ?? SF.world?.isNight ?? true;
+      for (const car of instances) {
+        if (!car.driver) {
+          car.speed = 0;
+          car.steer = 0;
+          car.brake = false;
+        }
+        const lit = Boolean(dark && car.driver);
+        car.front.emissiveIntensity = lit ? 2 : .04;
+        car.rear.emissiveIntensity = car.brake ? 2.8 : lit ? .54 : .08;
+        const near = SF.player.position?.distanceToSquared(car.mesh.position) < 28 ** 2;
+        for (const light of car.lights) light.intensity = lit && (car.driver === SF.player || car === SF.traffic?.beamCar) && near ? 16 : 0;
+        for (const { pivot, roll, steer } of car.wheels) {
+          pivot.rotation.y = steer ? car.steer * .5 : 0;
+          roll.rotation.x = (roll.rotation.x + car.speed * dt / .31) % (2 * Math.PI);
+        }
       }
     }
-    var result = {mesh: car, pos: car.position, heading: heading, speed: 0, health: 100,
-      name: d.name, def: d, defIdx: defs.indexOf(d), stolen: false, driver: null,
-      locked: false, active: true, spin: 0, vx: 0, vz: 0, remainder: 0, wheels: wheels, update: simulate, reset: reset};
-    result.reset(x, z, heading); list.push(result); scene.add(car);
-    return result;
-  }
-  function nearestEnterable(x, z, maxDist) {
-    var best = null, limit = maxDist * maxDist;
-    for (var i = 0; i < list.length; i++) {
-      var c = list[i];
-      if (!c.active || c.locked || c.health <= 0 || c.driver === 'cop' || c.driver === 'player' || Math.abs(c.speed) > 6) continue;
-      var dx = c.pos.x - x, dz = c.pos.z - z, distance = dx * dx + dz * dz;
-      if (distance <= limit) { limit = distance; best = c; }
-    }
-    return best;
-  }
-  SF.vehicles = {defs: defs, create: create, list: list, nearestEnterable: nearestEnterable,
-    clear: clear, nearbyColliders: nearby, step: step, half: half};
-  var parked = 0;
-  for (var slot = 0; slot < 180 && parked < 29; slot++) {
-    var cross = (Math.floor(SF.random.next() * 6) - 3) * step + step / 2;
-    var along = (Math.floor(SF.random.next() * 6) - 3) * step + 18 + SF.random.next() * 45;
-    var vertical = SF.random.next() < 0.5, side = SF.random.next() < 0.5 ? -1 : 1;
-    var x = vertical ? cross + side * 7 : along, z = vertical ? along : cross + side * 7;
-    if (!clear(x, z, 1.7) || nearestEnterable(x, z, 8)) continue;
-    var defIdx = parked === 8 || parked === 22 ? 5 : Math.floor(SF.random.next() * 5);
-    var c = create(x, z, vertical ? (side < 0 ? 0 : Math.PI) : side > 0 ? Math.PI / 2 : -Math.PI / 2, defIdx);
-    c.locked = parked === 22; parked++;
-  }
-}());
+  };
+})();

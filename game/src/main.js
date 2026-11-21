@@ -1,116 +1,198 @@
-(function () {
+(function (root) {
   'use strict';
-  function boot(){
-    var player=SF.player,input=SF.input,canvas=document.getElementById('game'),start=document.getElementById('start-screen'),pause=document.getElementById('pause');
-    var started=false,paused=false,shopOpen=false,endKind='',endTime=0,last=0,clock=0,clockTick=0,day=1,district='',previousCar=null,interact=false,titleCamera=0;
-    var pauseCard=pause.querySelector('.overlay-card'),saveButton=document.createElement('button'),resumeButton=document.createElement('button');
-    saveButton.textContent='Save at safehouse';resumeButton.textContent='Resume';pauseCard.appendChild(saveButton);pauseCard.appendChild(resumeButton);
-    var shop=document.createElement('div');shop.id='shop';shop.className='panel';shop.style.cssText='display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(460px,90vw);pointer-events:auto;background:#211a35;z-index:20;max-height:85vh;overflow:auto';
-    var title=document.createElement('h2');title.textContent='MARKET ROW · BAY OUTFITTERS';shop.appendChild(title);
-    var note=document.createElement('p');note.textContent='1–4 buy a weapon · 5–8 buy three magazines ($75) · E / Esc close';shop.appendChild(note);
-    var buttons=[];
-    function button(label,action){var el=document.createElement('button');el.textContent=label;el.style.cssText='display:block;width:100%;padding:10px;margin:6px 0;background:#3a2d4b;color:#fff1db;border:1px solid #e9a15e;border-radius:6px;cursor:pointer';el.addEventListener('click',action);shop.appendChild(el);buttons.push(el);}
-    function buy(slot,ammo){
-      var w=SF.weapons,d=w.defs[slot],price=ammo?75:slot===1?450:d.price;
-      if(ammo&&!w.owned[slot]){SF.hud.toast('Buy this weapon first');return;}
-      if(!ammo&&w.owned[slot]){SF.hud.toast('Already owned');return;}
-      if(ammo&&w.ammo[slot].reserve>=d.reserve){SF.hud.toast('Reserve ammo full');return;}
-      if(player.cash<price){SF.hud.toast('Not enough cash');return;}
-      player.cash-=price;if(ammo)w.addAmmo(slot,3);else{w.unlock(slot);w.equip(slot);}SF.audio.cash();SF.save.save();SF.hud.refresh();
+  var SF = root.SF = root.SF || {};
+  var state = { booted: false, playing: false, paused: false, time: 0, frame: 0, last: 0, raf: 0, districtTimer: 0, districtText: '', titleAngle: 0, lastSave: 0 };
+  function call(target, names, args) {
+    if (!target) return false;
+    for (var i = 0; i < names.length; i++) if (typeof target[names[i]] === 'function') {
+      try { target[names[i]].apply(target, args || []); return true; } catch (err) { if (root.console && console.warn) console.warn('Sunfall subsystem ' + names[i] + ' failed', err); }
     }
-    for(var i=1;i<5;i++)(function(slot){button(slot+' · '+SF.weapons.defs[slot].name+' · $'+(slot===1?450:SF.weapons.defs[slot].price),function(){buy(slot,false);});})(i);
-    for(var a=1;a<5;a++)(function(slot){button((slot+4)+' · '+SF.weapons.defs[slot].name+' ammo · $75',function(){buy(slot,true);});})(a);
-    button('Close shop',function(){toggleShop(false);});document.getElementById('ui').appendChild(shop);
-    var storeMarker=new THREE.Mesh(new THREE.CylinderGeometry(3,3,5,12,1,true),new THREE.MeshBasicMaterial({color:0xc98aff,transparent:true,opacity:0.4,depthWrite:false,side:THREE.DoubleSide}));storeMarker.position.set(205,2.5,10);SF.render.scene.add(storeMarker);
-    var clinic=new THREE.Mesh(new THREE.BoxGeometry(1,3,1),new THREE.MeshBasicMaterial({color:0x78f2bd}));clinic.position.set(-117,1.5,123);SF.render.scene.add(clinic);
-    function requestLock(){if(canvas.requestPointerLock){var result=canvas.requestPointerLock();if(result&&result.catch)result.catch(function(){SF.hud.toast('Click the world to capture the mouse');});}}
-    function nearSafehouse(){
-      for(var i=0;i<player.safehouses.length;i++){
-        var home=player.safehouses[i],dx=player.pos.x-home.x,dz=player.pos.z-home.z;
-        if(dx*dx+dz*dz<12*12)return true;
-      }
-      return false;
-    }
-    function setPause(value){
-      if(!started||endKind||SF.shots.active)return;paused=value;pause.style.display=value?'grid':'none';SF.audio.pause(value);
-      saveButton.disabled=!nearSafehouse();
-      saveButton.style.opacity=saveButton.disabled?'.45':'1';
-      if(value){if(document.exitPointerLock)document.exitPointerLock();}else requestLock();
-    }
-    function toggleShop(value){shopOpen=value;interact=false;input.pressed('enter');shop.style.display=value?'block':'none';if(value){SF.audio.pause(true);if(document.exitPointerLock)document.exitPointerLock();}else{SF.audio.pause(false);requestLock();}}
-    saveButton.addEventListener('click',function(){if(!nearSafehouse()){SF.hud.toast('Return to a safehouse to save.');return;}if(SF.save.save())SF.hud.toast('Saved at the safehouse');});resumeButton.addEventListener('click',function(){setPause(false);});
-    start.addEventListener('click',function(){if(started)return;started=true;player.respawn(0);start.style.display='none';SF.audio.unlock();SF.audio.engine(!!player.inCar);requestLock();});
-    document.addEventListener('pointerlockchange',function(){if(started&&!input.locked&&!shopOpen&&!SF.shots.active&&!endKind)setPause(true);});
-    window.addEventListener('keydown',function(event){
-      if(event.repeat)return;
-      if(shopOpen){if(event.code==='Escape'||event.code==='KeyE'){toggleShop(false);return;}var n=Number(event.key);if(n>=1&&n<=8)buy(n<=4?n:n-4,n>4);return;}
-      if(event.code==='KeyM'&&started&&!paused&&!endKind){SF.hud.toggleMap();return;}
-      if(event.code==='Escape'&&SF.hud.mapOpen){SF.hud.toggleMap(false);return;}
-      if((event.code==='Escape'||event.code==='KeyP')&&started){setPause(!paused);return;}
-      if(event.code==='KeyE')interact=true;
-      if(event.code==='KeyN'&&started&&!paused&&player.inCar)SF.audio.radioNext();
-    });
-    function shopNear(){var dx=player.pos.x-205,dz=player.pos.z-10;return dx*dx+dz*dz<25&&!player.inCar;}
-    function end(kind){
-      endKind=kind;endTime=0;SF.missions.fail(kind==='busted'?'Job interrupted by patrols':'Job interrupted');
-      var fee;if(kind==='busted'){fee=Math.min(player.cash,150+100*SF.police.wanted);player.cash-=fee;}else{fee=Math.min(player.cash,200+Math.floor(player.cash*0.1));player.cash-=fee;}
-      SF.hud.showEnd(kind,(kind==='busted'?'Processing fine':'Clinic + lost cash')+' · $'+fee);SF.audio.engine(false);SF.audio.siren(false);
-      if(document.exitPointerLock)document.exitPointerLock();
-    }
-    function recover(){
-      var home=0,best=Infinity;
-      if(endKind==='busted'){for(var i=0;i<SF.missions.safehouseUnlocks.length;i++){var idx=SF.missions.safehouseUnlocks[i],h=player.safehouses[idx],dx=player.pos.x-h.x,dz=player.pos.z-h.z,d=dx*dx+dz*dz;if(d<best){best=d;home=idx;}}player.respawn(home);}else player.respawn({x:-117,z:123});
-      SF.police.reset();endKind='';SF.hud.hideEnd();SF.save.save();SF.audio.pause(false);requestLock();
-    }
-    function updateClock(dt){
-      clock+=dt;clockTick+=dt;if(clockTick<0.1)return;clockTick=0;
-      var minutes=1060+Math.floor(clock*3),newDay=day+Math.floor(minutes/1440),tod=minutes%1440;SF.day=newDay;
-      SF.hud.setClock(newDay,String(Math.floor(tod/60)).padStart(2,'0')+':'+String(tod%60).padStart(2,'0'));
-      var name=SF.world.districtAt(player.pos.x,player.pos.z);if(name!==district){district=name;SF.hud.toast(name);}else if(shopNear())SF.hud.toast('E — Gun Shop');
-    }
-    SF.day=1;if(!SF.shots.active)SF.save.load();day=SF.day||1;player.respawn(0);
-    // Seed a clean first ride beside the Palma Strand safehouse.
-    SF.vehicles.create(-269,42,0,1);
-    SF.missions.update(0.15);SF.hud.setClock(day,'17:40');SF.hud.refresh();start.style.display='grid';
-    SF.render.renderer.compile(SF.render.scene,SF.render.camera);
-    if(SF.shots.active){started=true;SF.shots.stage();}
-    function frame(time){
-      var dt=last?Math.max(0,Math.min(0.05,(time-last)*0.001)):0;last=time;
-      if(!SF.shots.active){
-        if(started&&!paused&&!shopOpen&&!endKind){
-          input.interactConsumed=false;
-          if(interact){if(shopNear()){input.interactConsumed=true;input.pressed('enter');toggleShop(true);}else if(SF.missions.interact()){input.interactConsumed=true;input.pressed('enter');}}
-          interact=false;
-          if(!shopOpen){
-            var oldHealth=player.health+player.armour,oldReady=SF.weapons.timeToReady,oldReload=SF.weapons.reloadT;
-            if(input.pressed('attack')&&SF.weapons.cur&&SF.weapons.ammo[SF.weapons.cur].mag===0)SF.audio.emptyClick();
-            SF.player.update(dt);SF.traffic.update(dt);SF.peds.update(dt);SF.police.update(dt);SF.weapons.update(dt);SF.missions.update(dt);SF.city.update(dt);SF.world.update(dt);
-            if(player.health+player.armour<oldHealth)SF.audio.hit();
-            if(!oldReload&&SF.weapons.reloadT>0)SF.audio.reload();
-            if(!SF.weapons.cur&&oldReady<=0&&SF.weapons.timeToReady>0)SF.audio.punch();
-            if(previousCar!==player.inCar){previousCar=player.inCar;SF.audio.engine(!!previousCar);if(!previousCar)SF.audio.radioStop();}
-            updateClock(dt);
-            var prompt='';
-            if(player.inCar)prompt='Exit vehicle';
-            else if(!SF.missions.active&&SF.missions.nearest&&Math.hypot(player.pos.x-SF.missions.nearest.x,player.pos.z-SF.missions.nearest.z)<5)prompt='Talk to '+SF.missions.nearest.giver+' · '+SF.missions.nearest.title;
-            else if(SF.vehicles.nearestEnterable(player.pos.x,player.pos.z,4.2))prompt='Enter nearby vehicle';
-            SF.hud.prompt(prompt);
-            if(player.health<=0)end('wasted');else if(SF.police.pressure>=1)end('busted');
-          }
-        }else if(endKind){endTime+=dt;if(interact&&endTime>1.2)recover();interact=false;}
-        else {interact=false;input.pressed('enter');SF.hud.prompt('');}
-        input.clearLook();SF.audio.update(dt);SF.hud.update(dt);
-        if(!started){
-        // One deliberate title-shot sweep; gameplay cameras remain action-driven.
-        titleCamera=time*0.000035;
-        SF.render.camera.position.set(-355+Math.sin(titleCamera)*24,64+Math.sin(titleCamera*.65)*3,285-Math.cos(titleCamera)*20);
-        SF.render.camera.lookAt(-42,13,-25);
-        }
-      }
-      SF.render.update(dt,player.pos);
-    }
-    SF.render.renderer.setAnimationLoop(frame);
-    SF.main={pause:setPause,resume:function(){setPause(false);},get paused(){return paused;},get started(){return started;}};
+    return false;
   }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
-}());
+  function buildWorld() {
+    call(SF.world, ['build', 'buildWorld', 'create', 'init']);
+    call(SF.city, ['build', 'create', 'init']);
+    call(SF.render, ['init', 'create', 'setup']);
+    if (SF.world && SF.render && SF.render.scene && !SF.world.scene) SF.world.scene = SF.render.scene;
+  }
+  function getPlayerPosition() {
+    var p = SF.player && (SF.player.position || SF.player.mesh && SF.player.mesh.position);
+    return p || { x: 0, y: 0, z: 0 };
+  }
+  function saveProgress() {
+    if (!SF.save || !SF.save.store) return;
+    var p = getPlayerPosition();
+    SF.save.store({ cash: SF.missions ? SF.missions.cash : 250, storyDone: SF.missions ? SF.missions.storyDone : 0, safehouse: { x: Number(p.x) || 0, y: Number(p.y) || 0, z: Number(p.z) || 0 } });
+    state.lastSave = state.time;
+  }
+  function startGame(isContinue) {
+    if (SF.audio) { SF.audio.resume(); SF.audio.startAmbience(); }
+    var saved = SF.save && SF.save.load ? SF.save.load() : { cash: 250, storyDone: 0, safehouse: { x: 0, y: 0, z: 0 } };
+    if (!isContinue && SF.save) { saved = SF.save.clear(); }
+    if (SF.missions && SF.missions.restore) SF.missions.restore(saved);
+    if (!isContinue && SF.player && SF.world.safehouse) saved.safehouse = SF.world.safehouse;
+    if (saved.safehouse && SF.player) {
+      var mesh = SF.player.mesh || SF.player;
+      if (mesh.position && mesh.position.set) mesh.position.set(saved.safehouse.x, saved.safehouse.y, saved.safehouse.z);
+      else if (mesh.position) Object.assign(mesh.position, saved.safehouse);
+    }
+    state.playing = true; state.paused = false;
+    if (SF.hud) {
+      SF.hud.closeOverlay();
+      SF.hud.elements.root.classList.remove('sf-menu');
+      if (SF.hud.elements && SF.hud.elements.root) SF.hud.elements.root.style.display = 'block';
+    }
+    if (SF.input && SF.input.lock && root.document && !root.__SUNFALL_HEADLESS__) SF.input.lock(SF.render && SF.render.renderer && SF.render.renderer.domElement);
+    if (SF.missions && !SF.missions.active && SF.missions.storyDone < 8) SF.missions.begin(SF.missions.storyDone);
+    saveProgress();
+    state.lastSave = state.time;
+  }
+  function showTitle() {
+    state.playing = false; state.paused = false;
+    if (SF.audio) SF.audio.stopEngine();
+    if (SF.hud) {
+      var saved = !!(SF.save && SF.save.saved);
+      SF.hud.elements.root.classList.add('sf-menu');
+      SF.hud.showTitle('SUNFALL', 'Solano Bay · Walk / drive: WASD · Enter car: F · Job: E · Activities: T · Pause: P', [
+        { label: 'New Game', onClick: function () { startGame(false); } },
+        { label: saved ? 'Continue' : 'Continue — no save', onClick: function () { if (saved) startGame(true); } }
+      ]);
+      if (SF.hud.elements && SF.hud.elements.root) SF.hud.elements.root.style.display = 'block';
+    }
+  }
+  function pause() {
+    if (!state.playing || state.paused) return;
+    state.paused = true; if (SF.input && SF.input.unlock) SF.input.unlock();
+    if (SF.audio) SF.audio.stopEngine();
+    saveProgress();
+    if (SF.hud) SF.hud.showPause(function () { state.paused = false; SF.hud.closeOverlay(); }, showTitle);
+  }
+  function distance(a, b) { var x = (Number(a.x) || 0) - (Number(b.x) || 0), z = (Number(a.z) || 0) - (Number(b.z) || 0); return Math.sqrt(x * x + z * z); }
+  function promptForAction() {
+    if (!SF.missions || !SF.missions.active) { SF.hud && SF.hud.prompt(''); return; }
+    var active = SF.missions.active, marker = active.nearestMarker, pos = getPlayerPosition(), near = marker && distance(pos, marker) < 32;
+    var text = '';
+    if (near) {
+      var stage = active.stages[active.stage];
+      text = stage && stage.type === 'drive' ? '[E] Get in and continue' : stage && stage.type === 'escape' ? 'Lose the patrols to finish' : '[E] Continue';
+    }
+    SF.hud && SF.hud.prompt(text);
+  }
+  function interact() {
+    if (!SF.missions || !SF.missions.active) return;
+    var active = SF.missions.active, stage = active.stages[active.stage], pos = getPlayerPosition();
+    if (stage && stage.type === 'drive' && SF.vehicles) {
+      call(SF.vehicles, ['enter', 'enterNearest', 'use', 'getIn'], []);
+    }
+    var police = SF.police || {}, units = police.units || police.cars || police.patrols || [], nearestPatrol = Infinity;
+    if (!Array.isArray(units)) units = Object.keys(units).map(function (k) { return units[k]; });
+    units.forEach(function (u) { var at = u && (u.car && u.car.mesh.position || u.mesh && u.mesh.position || u.position) || u; if (at && isFinite(at.x) && isFinite(at.z)) nearestPatrol = Math.min(nearestPatrol, distance(pos, at)); });
+    SF.missions.interact({ distance: nearestPatrol, elapsed: active.stageElapsed, wanted: getWanted() });
+  }
+  function getWanted() {
+    var p = SF.police || {}, w = p.stars != null ? p.stars : p.wanted || p.wantedState || {};
+    return Number(typeof w === 'number' ? w : (w.level != null ? w.level : (w.stars != null ? w.stars : (p.wantedLevel != null ? p.wantedLevel : p.level)))) || 0;
+  }
+  function handleInput() {
+    if (!SF.input) return;
+    if (SF.input.consumePressed('Escape') || SF.input.consumePressed('KeyP')) { if (state.paused) { state.paused = false; SF.hud && SF.hud.closeOverlay(); } else if (state.playing) pause(); }
+    if (!state.playing || state.paused) return;
+    if (SF.input.consumePressed('KeyE')) interact();
+    if (SF.input.consumePressed('KeyT') && SF.missions) {
+      var p=getPlayerPosition();
+      var nearest=SF.missions.activities.slice().sort(function(a,b){return distance(p,a.marker)-distance(p,b.marker);})[0];
+      if(nearest) SF.missions.startActivity(nearest.id);
+    }
+    if (SF.input.consumePressed('KeyM') && SF.missions && SF.missions.active) {
+      var line = SF.missions.active.giver ? SF.missions.active.giver + ': Keep this quiet and bring it back clean.' : 'The next marker is waiting.';
+      SF.hud && SF.hud.dialogue(line, SF.missions.active.giver);
+      root.setTimeout(function () { SF.hud && SF.hud.dialogue(''); }, 2600);
+    }
+    if (SF.input.mouseDown() && SF.weapons) call(SF.weapons, ['fire', 'shoot', 'trigger'], []);
+  }
+  function updateSubsystem(target, dt) { call(target, ['update', 'tick', 'step'], [dt, SF.input]); }
+  function updateGame(dt) {
+    updateSubsystem(SF.player, dt);
+    if (SF.missions) {
+      SF.missions.update(dt);
+      var active = SF.missions.active;
+      if (active && active.stages[active.stage] && active.stages[active.stage].type === 'escape') {
+        var pos = getPlayerPosition(), nearest = Infinity, police = SF.police || {}, cops = police.units || police.cars || police.patrols || [];
+        if (!Array.isArray(cops)) cops = Object.keys(cops).map(function (k) { return cops[k]; });
+        cops.forEach(function (u) { var at = u && (u.car && u.car.mesh.position || u.mesh && u.mesh.position || u.position) || u; if (at && isFinite(at.x) && isFinite(at.z)) nearest = Math.min(nearest, distance(pos, at)); });
+        var marker = active.nearestMarker;
+        if (marker && distance(pos, marker) < 28 && SF.missions.escapeSatisfied({ wanted: getWanted(), elapsed: active.stageElapsed, distance: nearest })) SF.missions.advance();
+      }
+    }
+    if (SF.audio) {
+      var player = SF.player || {}, vehicle = player.car;
+      if (vehicle) SF.audio.engineHum(Number(vehicle.speed) || 0); else SF.audio.stopEngine();
+      SF.audio.sirenLoop(getWanted() > 0);
+    }
+    promptForAction();
+    if (SF.hud) SF.hud.update(dt);
+    if (state.time - state.lastSave > 45) saveProgress();
+  }
+  function render() {
+    var r = SF.render || {};
+    if (call(r, ['render', 'draw', 'frame'], [])) return;
+    if (r.renderer && r.scene && r.camera && r.renderer.render) r.renderer.render(r.scene, r.camera);
+    else if (SF.world && SF.world.scene && r.renderer && r.camera && r.renderer.render) r.renderer.render(SF.world.scene, r.camera);
+  }
+  function sweepTitle(dt) {
+    state.titleAngle += dt * 0.035;
+    var r = SF.render || {}, camera = r.camera || (r.renderer && r.renderer.camera);
+    if (!camera) return;
+    var radius = 24, x = Math.cos(state.titleAngle) * radius, z = Math.sin(state.titleAngle) * radius;
+    if (camera.position) {
+      if (camera.position.set) camera.position.set(x, 21 + Math.sin(state.titleAngle * 0.7) * 1.6, z);
+      else Object.assign(camera.position, { x: x, y: 21, z: z });
+    }
+    if (camera.lookAt) camera.lookAt(0, 1, 0);
+  }
+  function frame(now) {
+    if (!state.booted || root.__SUNFALL_STOP_LOOP__) return;
+    var time = Number(now) || (Date.now());
+    var dt = state.last ? Math.max(0, Math.min(0.05, (time - state.last) / 1000)) : 0.016;
+    state.last = time; state.time += dt; state.frame++;
+    if (state.playing) { handleInput(); if (!state.paused) updateGame(dt); }
+    else if (!state.playing) sweepTitle(dt);
+    render();
+    if (root.requestAnimationFrame) state.raf = root.requestAnimationFrame(frame);
+  }
+  function flashDistrict(name) {
+    state.districtText = name; state.districtTimer = 2.5;
+    if (SF.hud && SF.hud.dialogue) SF.hud.dialogue(name.toUpperCase());
+    root.setTimeout(function () { state.districtTimer = 0; if (SF.hud && SF.hud.dialogue) SF.hud.dialogue(''); }, 1800);
+  }
+  function boot(options) {
+    options = options || {};
+    if (state.booted) return SF.main;
+    state.booted = true;
+    if (options.headless) root.__SUNFALL_HEADLESS__ = true;
+    buildWorld();
+    if (SF.input && SF.input.bind) SF.input.bind(SF.render && SF.render.renderer && SF.render.renderer.domElement);
+    if (SF.save && SF.save.load) SF.save.load();
+    if (SF.missions && SF.missions.restore && SF.save) SF.missions.restore(SF.save.data);
+    if (SF.hud && SF.hud.init) SF.hud.init();
+    // Audio starts with the menu press so autoplay policies are respected.
+    showTitle();
+    if (options.autoLoop !== false && root.requestAnimationFrame) { state.last = 0; state.raf = root.requestAnimationFrame(frame); }
+    return SF.main;
+  }
+  SF.main = {
+    boot: boot,
+    start: startGame,
+    startGame: startGame,
+    showTitle: showTitle,
+    pause: pause,
+    update: updateGame,
+    frame: frame,
+    flashDistrict: flashDistrict,
+    get state() { return state; }
+  };
+  if (root.document) {
+    if (root.document.readyState === 'loading') root.document.addEventListener('DOMContentLoaded', function () { boot(); }, { once: true });
+    else root.setTimeout(function () { boot(); }, 0);
+  }
+})(globalThis);

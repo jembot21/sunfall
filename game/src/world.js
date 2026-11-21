@@ -1,97 +1,100 @@
-(function () {
-  var group = new THREE.Group();
-  var size = 1400;
-  var half = size / 2;
-  var canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 2048;
-  var ctx = canvas.getContext('2d');
-  var scale = canvas.width / size;
-  function px(x) { return (x + half) * scale; }
-  function pz(z) { return (z + half) * scale; }
-  ctx.fillStyle = '#b6a28f'; ctx.fillRect(0, 0, 2048, 2048);
-  ctx.fillStyle = '#423c3b';
-  for (var k = -7; k <= 7; k++) {
-    var roadCenter = k * 82 + 41;
-    ctx.fillRect(px(roadCenter - 9), 0, 18 * scale, 2048);
-    ctx.fillRect(0, pz(roadCenter - 9), 2048, 18 * scale);
-  }
-  var lotColors = ['#81776f','#92796a','#786f6d','#9b8070','#777a76','#897a73','#9b8275'];
-  for (var gx = -3; gx <= 3; gx++) for (var gz = -3; gz <= 3; gz++) {
-    var cx = gx * 82, cz = gz * 82;
-    ctx.fillStyle = lotColors[(gx * 3 + gz * 5 + 30) % lotColors.length];
-    ctx.fillRect(px(cx - 31), pz(cz - 31), 62 * scale, 62 * scale);
-    ctx.fillStyle = '#c2a98f';
-    ctx.fillRect(px(cx - 33), pz(cz - 33), 66 * scale, 2 * scale);
-    ctx.fillRect(px(cx - 33), pz(cz + 31), 66 * scale, 2 * scale);
-  }
-  ctx.fillStyle = '#d6b27d'; ctx.fillRect(0, 0, px(-260), 2048);
-  ctx.fillStyle = '#ac896d'; ctx.fillRect(px(-276), 0, 16 * scale, 2048);
-  ctx.fillStyle = '#423c3b'; ctx.fillRect(px(-254), 0, 18 * scale, 2048);
-  ctx.strokeStyle = '#e3c891'; ctx.lineWidth = 2;
-  for (var r = -7; r <= 7; r++) {
-    var center = r * 82;
-    ctx.setLineDash([12, 14]);
-    ctx.beginPath(); ctx.moveTo(px(center), 0); ctx.lineTo(px(center), 2048); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, pz(center)); ctx.lineTo(2048, pz(center)); ctx.stroke();
-  }
-  ctx.setLineDash([]);
-  var texture = new THREE.CanvasTexture(canvas);
-  texture.encoding = THREE.sRGBEncoding;
-  texture.anisotropy = 4;
-  var ground = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshLambertMaterial({ map: texture }));
-  ground.rotation.x = -Math.PI / 2; ground.position.y = -0.08; ground.receiveShadow = true;
-  group.add(ground);
-
-  var oceanMat1 = new THREE.MeshLambertMaterial({ color: SF.CONFIG.palette.ocean, transparent: true, opacity: 0.9, depthWrite: false });
-  var oceanMat2 = new THREE.MeshLambertMaterial({ color: '#62b7aa', transparent: true, opacity: 0.18, depthWrite: false });
-  var ocean1 = new THREE.Mesh(new THREE.PlaneGeometry(700, 1200), oceanMat1);
-  var ocean2 = new THREE.Mesh(new THREE.PlaneGeometry(700, 1200), oceanMat2);
-  ocean1.rotation.x = ocean2.rotation.x = -Math.PI / 2;
-  ocean1.position.set(-740, -0.16, 0); ocean2.position.set(-740, -0.11, 0);
-  group.add(ocean1, ocean2);
-
-  var umbrellaGeo = new THREE.ConeGeometry(2.3, 1.1, 8, 1);
-  var umbrellaMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.78 });
-  var towelsMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, side: THREE.DoubleSide });
-  var umbrellaCount = 60, umbrellas = new THREE.InstancedMesh(umbrellaGeo, umbrellaMat, umbrellaCount);
-  var towelGeo = new THREE.PlaneGeometry(4, 6);
-  var towels = new THREE.InstancedMesh(towelGeo, towelsMat, umbrellaCount);
-  var dummy = new THREE.Object3D();
-  var beachColors = ['#ff5a70','#ffd34f','#32c5b4','#a978ff','#ffffff'];
-  for (var u = 0; u < umbrellaCount; u++) {
-    var bx = -345 - (u % 5) * 15;
-    var bz = -215 + Math.floor(u / 5) * 38;
-    dummy.position.set(bx, 1.1, bz); dummy.rotation.set(0, (u * 1.7) % 6.2, 0); dummy.updateMatrix(); umbrellas.setMatrixAt(u, dummy.matrix);
-    umbrellas.setColorAt(u, new THREE.Color(beachColors[u % beachColors.length]));
-    dummy.position.set(bx + 4, 0.12, bz + 5); dummy.rotation.set(-Math.PI / 2, 0, (u % 2) * 0.28); dummy.updateMatrix(); towels.setMatrixAt(u, dummy.matrix);
-    towels.setColorAt(u, new THREE.Color(beachColors[(u + 2) % beachColors.length]));
-  }
-  umbrellas.castShadow = true; group.add(umbrellas, towels);
-  var pier = new THREE.Group();
-  var pierMat = new THREE.MeshStandardMaterial({ color: '#8e6049', roughness: 0.92 });
-  var deck = new THREE.Mesh(new THREE.BoxGeometry(80, 1.2, 14), pierMat); deck.position.set(-385, 1, 30); pier.add(deck);
-  var postGeo = new THREE.CylinderGeometry(0.6, 0.8, 7, 6);
-  for (var p = 0; p < 10; p++) { var post = new THREE.Mesh(postGeo, pierMat); post.position.set(-420 + p * 8, -2.1, 24); pier.add(post); var post2 = post.clone(); post2.position.z = 36; pier.add(post2); }
-  group.add(pier);
-  SF.render.scene.add(group);
-  function districtAt(x, z) {
-    var areas = SF.CONFIG.districts;
-    for (var i = 0; i < areas.length; i++) { var d = areas[i]; if (x >= d.x1 && x < d.x2 && z >= d.z1 && z < d.z2) return d.name; }
-    if (x < -220) return 'Palma Strand';
-    if (x < -30) return z < 65 ? 'Marina' : 'Old Town';
-    if (x < 105) return 'Downtown';
-    return z < 95 ? 'Hillcrest' : 'Ironworks Port';
-  }
-  SF.world = {
-    group: group,
-    isRoad: function (x, z) {
-      var halfRoad = SF.CONFIG.grid.road / 2;
-      var modX = ((x % 82) + 82) % 82, modZ = ((z % 82) + 82) % 82;
-      return Math.abs(modX - 41) < halfRoad || Math.abs(modZ - 41) < halfRoad;
-    },
-    isWater: function (x, z) { return x < -390; },
-    groundY: function (x, z) { return x < -390 ? -0.35 : 0; },
-    districtAt: districtAt,
-    update: function (dt) { ocean1.position.z = Math.sin(performance.now() * 0.00023) * 1.3; ocean2.position.z = ocean1.position.z + Math.sin(performance.now() * 0.00031) * 1.1; }
+(function (S) {
+  'use strict';
+  S.createWorld = function (scene) {
+    const T = THREE, C = S.Config, G = C.city, P = C.palette;
+    const city = S.createCity();
+    scene.add(city.group);
+    function plane(name, width, depth, x, y, z, color) {
+      const mesh = new T.Mesh(new T.PlaneGeometry(width, depth),
+        new T.MeshStandardMaterial({ color, roughness: 0.95 }));
+      mesh.name = name; mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(x, y, z); mesh.receiveShadow = true;
+      scene.add(mesh); return mesh;
+    }
+    plane('warm asphalt city bed', 650, 660, 17, -0.015, 0, P.asphalt);
+    plane('coastal promenade', 22, 660, -299, 0.02, 0, P.concrete);
+    plane('Palma beach', G.beachWidth, 900, -334, -0.35, 0, P.sand);
+    // Shader sky uses world height: violet overhead, coral mid-sky, amber horizon.
+    const sky = new T.Mesh(new T.SphereGeometry(1300, 32, 20), new T.ShaderMaterial({
+      side: T.BackSide, depthWrite: false,
+      uniforms: { amber: { value: new T.Color(P.skyAmber) }, coral: { value: new T.Color(P.skyCoral) },
+        violet: { value: new T.Color(P.skyViolet) } },
+      vertexShader: 'varying vec3 vDirection; void main(){vDirection=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+      fragmentShader: 'varying vec3 vDirection; uniform vec3 amber; uniform vec3 coral; uniform vec3 violet; void main(){float h=normalize(vDirection).y; vec3 c=mix(amber,coral,smoothstep(-0.05,0.38,h)); c=mix(c,violet,smoothstep(0.25,0.95,h));gl_FragColor=vec4(c,1.0);\n#include <tonemapping_fragment>\n#include <encodings_fragment>\n}'
+    }));
+    sky.name = 'Solano sunset sky'; sky.frustumCulled = false; scene.add(sky);
+    const sun = new T.Mesh(new T.SphereGeometry(22, 24, 16),
+      new T.MeshBasicMaterial({ color: 0xffdb91, fog: false }));
+    sun.position.set(-950, 235, -550); scene.add(sun);
+    // Distant land silhouettes give the bay a horizon without gameplay obstacles.
+    const hills = new T.Group(); hills.name = 'distant inland ridge';
+    const hillGeometry = new T.SphereGeometry(1, 10, 7);
+    const hillMaterial = new T.MeshStandardMaterial({ color: 0x876d79, roughness: 1 });
+    const rng = S.Random(C.seed).fork('horizon');
+    for (let i = 0; i < 13; i++) {
+      const hill = new T.Mesh(hillGeometry, hillMaterial);
+      hill.position.set(550 + rng.range(-35, 75), -12, -650 + i * 110);
+      hill.scale.set(rng.range(90, 150), rng.range(55, 115), 100); hills.add(hill);
+    }
+    scene.add(hills);
+    const districts = C.districts.map(d => ({
+      id: d.id, name: d.name,
+      minX: G.minX + d.col[0] * G.block, maxX: G.minX + (d.col[1] + 1) * G.block,
+      minZ: G.minZ + d.row[0] * G.block, maxZ: G.minZ + (d.row[1] + 1) * G.block
+    }));
+    const trafficSpawns = [], pedestrianSpawns = [];
+    for (let line = 0; line <= G.columns; line++) {
+      const roadX = G.minX + line * G.block;
+      for (let segment = 0; segment < G.rows; segment++) {
+        const z = G.minZ + (segment + 0.5) * G.block;
+        trafficSpawns.push({ x: roadX - 3, y: 0.1, z, heading: 0 },
+          { x: roadX + 3, y: 0.1, z, heading: Math.PI },
+          { x: z, y: 0.1, z: roadX - 3, heading: Math.PI / 2 },
+          { x: z, y: 0.1, z: roadX + 3, heading: -Math.PI / 2 });
+        // Pavement edge, outside the building footprints and trunk positions.
+        if (line < G.columns) pedestrianSpawns.push({ x: roadX + 8.5, y: 0.24, z });
+      }
+    }
+    const safehouse = { id: 'strand-safehouse', name: 'Strand apartment', x: -224, y: 0.24, z: -240, heading: Math.PI };
+    const missionMarkers = [
+      { id: 'first-light', name: 'First Light', x: -224, y: 0.24, z: -211, district: 'palma' },
+      { id: 'marina-contact', name: 'Marina contact', x: -288, y: 0.24, z: 64, district: 'marina' },
+      { id: 'old-debts', name: 'Old debts', x: -32, y: 0.24, z: -160, district: 'oldtown' }
+    ];
+    const activityMarkers = [
+      { id: 'hill-run', type: 'race', x: 160, y: 0.1, z: -224 },
+      { id: 'port-delivery', type: 'delivery', x: 288, y: 0.1, z: 192 },
+      { id: 'downtown-garage', type: 'garage', x: 32, y: 0.24, z: 85 }
+    ];
+    const markerGroup = new T.Group(); markerGroup.name = 'foundation location markers';
+    const markerMaterial = new T.MeshBasicMaterial({ color: P.objective, transparent: true, opacity: 0.8, depthWrite: false });
+    missionMarkers.concat([safehouse]).forEach(point => {
+      const ring = new T.Mesh(new T.TorusGeometry(1.4, 0.09, 6, 24), markerMaterial);
+      ring.rotation.x = -Math.PI / 2; ring.position.set(point.x, point.y + 0.08, point.z);
+      markerGroup.add(ring);
+    });
+    scene.add(markerGroup);
+    const world = {
+      city, districts, trafficSpawns, pedestrianSpawns, safehouse,
+      missionMarkers, activityMarkers, spawn: Object.assign({}, C.spawn),
+      collisions: city.collisions, bounds: city.bounds,
+      districtAt: function (position) {
+        return districts.find(d => position.x >= d.minX && position.x < d.maxX &&
+          position.z >= d.minZ && position.z < d.maxZ) || null;
+      },
+      update: function (time, position) {
+        city.update(time);
+        if (!position) return;
+        const district = world.districtAt(position);
+        const id = district ? district.id : 'coast';
+        if (id !== world.currentDistrict) {
+          world.currentDistrict = id;
+          window.dispatchEvent(new CustomEvent('sunfall:district', {
+            detail: { id, name: district ? district.name : 'Solano Coast' }
+          }));
+        }
+      }
+    };
+    return world;
   };
-}());
+})(window.Sunfall = window.Sunfall || {});

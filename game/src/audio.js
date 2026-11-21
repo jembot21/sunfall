@@ -1,50 +1,74 @@
-(function () {
+(function (root) {
   'use strict';
-  var context=null,master=null,noise=null,engineOsc=null,engineGain=null,sirenOsc=null,sirenGain=null,radioGain=null;
-  var engineOn=false,sirenOn=false,radioOn=false,station=0,nextNote=0,step=0,scheduler=0;
-  var stations=[
-    {name:'SOLANO FM 99.1',track:'Peach Skyline · The Boardwalks',beat:0.17,wave:'triangle',notes:[72,76,79,76,74,77,81,77,72,76,79,83,81,79,76,74],bass:[48,48,53,55]},
-    {name:'PALMA GOLD',track:'Sunday Convertible · Vera Sol',beat:0.22,wave:'sine',notes:[67,0,69,72,71,69,67,64,65,0,67,69,67,65,64,62],bass:[48,57,53,55]},
-    {name:'HARBOR AFTER DARK',track:'Neon Estuary · Violet Circuit',beat:0.15,wave:'triangle',notes:[64,71,76,79,64,71,76,83,60,67,72,79,62,69,74,81],bass:[40,40,36,38]}
-  ];
-  function frequency(note){return 440*Math.pow(2,(note-69)/12);}
-  function tone(freq,duration,type,volume,when,bus,end){
-    if(!context)return;var t=when===undefined?context.currentTime:when,o=context.createOscillator(),g=context.createGain();
-    o.type=type||'triangle';o.frequency.setValueAtTime(freq,t);if(end)o.frequency.exponentialRampToValueAtTime(Math.max(1,end),t+duration);
-    g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(Math.max(0.0002,volume),t+0.006);g.gain.exponentialRampToValueAtTime(0.0001,t+duration);
-    o.connect(g);g.connect(bus||master);o.start(t);o.stop(t+duration+0.01);o.onended=function(){o.disconnect();g.disconnect();o.onended=null;};
+  var SF = root.SF = root.SF || {};
+  var ctx = null, master = null, ambience = null, siren = null, engine = null;
+  function ensure() {
+    if (ctx) return ctx;
+    var C = root.AudioContext || root.webkitAudioContext;
+    if (!C) return null;
+    try { ctx = new C(); master = ctx.createGain(); master.gain.value = 0.42; master.connect(ctx.destination); } catch (_) { ctx = null; }
+    return ctx;
   }
-  function hiss(duration,volume,cutoff,when,bus){
-    if(!context)return;var t=when===undefined?context.currentTime:when,s=context.createBufferSource(),g=context.createGain(),f=context.createBiquadFilter();
-    s.buffer=noise;f.type='lowpass';f.frequency.value=cutoff;g.gain.setValueAtTime(volume,t);g.gain.exponentialRampToValueAtTime(0.0001,t+duration);
-    s.connect(f);f.connect(g);g.connect(bus||master);s.start(t);s.stop(t+duration);s.onended=function(){s.disconnect();f.disconnect();g.disconnect();s.onended=null;};
+  function tone(freq, duration, wave, volume, endFreq) {
+    var c = ensure(); if (!c) return;
+    try {
+      var osc = c.createOscillator(), gain = c.createGain(), now = c.currentTime;
+      osc.type = wave || 'sine'; osc.frequency.setValueAtTime(freq, now);
+      if (endFreq) osc.frequency.exponentialRampToValueAtTime(Math.max(1, endFreq), now + duration);
+      gain.gain.setValueAtTime(0.0001, now); gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume || 0.1), now + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      osc.connect(gain); gain.connect(master); osc.start(now); osc.stop(now + duration + 0.03);
+    } catch (_) { /* Audio is optional on unsupported devices. */ }
   }
-  function unlock(){
-    if(!context){var AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
-      context=new AC();master=context.createGain();master.gain.value=0.24;master.connect(context.destination);
-      noise=context.createBuffer(1,Math.floor(context.sampleRate*0.6),context.sampleRate);var data=noise.getChannelData(0);for(var i=0;i<data.length;i++)data[i]=Math.random()*2-1;
-      engineGain=context.createGain();engineGain.gain.value=0;engineGain.connect(master);engineOsc=context.createOscillator();engineOsc.type='sawtooth';engineOsc.frequency.value=42;engineOsc.connect(engineGain);engineOsc.start();
-      sirenGain=context.createGain();sirenGain.gain.value=0;sirenGain.connect(master);sirenOsc=context.createOscillator();sirenOsc.type='triangle';sirenOsc.connect(sirenGain);sirenOsc.start();
-      radioGain=context.createGain();radioGain.gain.value=0;radioGain.connect(master);nextNote=context.currentTime;
-    }
-    if(context.state==='suspended')context.resume().catch(function(){});
+  function noise(seconds, cutoff, volume, repeat) {
+    var c = ensure(); if (!c) return null;
+    try {
+      var length = Math.max(1, Math.floor(c.sampleRate * seconds)), buffer = c.createBuffer(1, length, c.sampleRate), data = buffer.getChannelData(0);
+      for (var i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+      var src = c.createBufferSource(), filter = c.createBiquadFilter(), gain = c.createGain();
+      src.buffer = buffer; src.loop = !!repeat; filter.type = 'lowpass'; filter.frequency.value = cutoff || 900;
+      gain.gain.value = volume || 0.04; src.connect(filter); filter.connect(gain); gain.connect(master); src.start();
+      return { source: src, gain: gain, filter: filter };
+    } catch (_) { return null; }
   }
-  function radioNext(){station=(station+1)%stations.length;step=0;if(context)nextNote=context.currentTime+0.02;radioOn=!!SF.player.inCar;SF.hud.radioToast(stations[station].name,stations[station].track);}
-  function update(dt){
-    if(!context)return;var now=context.currentTime,car=SF.player.inCar;
-    engineGain.gain.setTargetAtTime(engineOn&&car?0.075:0,now,0.06);engineOsc.frequency.setTargetAtTime(38+(car?Math.abs(car.speed)*3.3:0),now,0.06);
-    sirenGain.gain.setTargetAtTime(sirenOn?0.065:0,now,0.06);sirenOsc.frequency.setTargetAtTime(Math.sin(now*5)>0?690:920,now,0.025);
-    radioGain.gain.setTargetAtTime(radioOn&&car?0.65:0,now,0.04);
-    scheduler+=dt;if(scheduler<0.06)return;scheduler=0;if(!radioOn||!car){nextNote=now+0.03;return;}
-    if(nextNote<now)nextNote=now+0.01;var st=stations[station];
-    while(nextNote<now+0.18){
-      var note=st.notes[step%16];if(note)tone(frequency(note),st.beat*0.75,st.wave,0.07,nextNote,radioGain);
-      if(step%4===0)tone(frequency(st.bass[Math.floor(step/4)%4]),st.beat*2.7,'triangle',0.15,nextNote,radioGain);
-      if(step%2===0)hiss(0.025,0.025,7000,nextNote,radioGain);
-      if(step%4===0)tone(110,0.11,'sine',0.15,nextNote,radioGain,35);
-      step++;nextNote+=st.beat;
-    }
+  function stop(loop) {
+    if (!loop) return;
+    try { loop.source.stop(); } catch (_) {}
+    try { loop.gain.disconnect(); } catch (_) {}
   }
-  SF.audio={unlock:unlock,update:update,shot:function(def,index){var i=index||SF.weapons.cur;hiss(i===3?0.18:0.09,i===3?0.7:0.35,i===4?1900:3500);tone(i===4?110:180,0.09,'square',0.1,undefined,null,45);},punch:function(){hiss(0.07,0.15,450);tone(90,0.09,'sine',0.16);},hit:function(){tone(70,0.14,'triangle',0.18,undefined,null,28);},emptyClick:function(){tone(700,0.025,'square',0.05);},reload:function(){if(!context)return;tone(850,0.035,'square',0.04);tone(1250,0.05,'square',0.04,context.currentTime+0.22);},siren:function(on){sirenOn=!!on;},engine:function(on){engineOn=!!on;if(on){radioOn=true;}else radioOn=false;},pickup:function(){tone(660,0.13,'triangle',0.17);if(context)tone(990,0.2,'triangle',0.13,context.currentTime+0.09);},cash:function(){if(!context)return;for(var i=0;i<3;i++)tone(660+i*220,0.12,'square',0.06,context.currentTime+i*0.07);},missionComplete:function(){if(!context)return;var notes=[60,64,67,72,76];for(var i=0;i<notes.length;i++)tone(frequency(notes[i]),0.3,'triangle',0.15,context.currentTime+i*0.12);},radioNext:radioNext,radioStop:function(){radioOn=false;},pause:function(paused){if(context)master.gain.setTargetAtTime(paused?0:0.24,context.currentTime,0.03);},setVolume:function(n){if(master)master.gain.value=Math.max(0,Math.min(1,n));}};
-  window.addEventListener('pointerdown',unlock,{once:true});window.addEventListener('keydown',unlock,{once:true});
-}());
+  SF.audio = {
+    context: function () { return ensure(); },
+    resume: function () { var c = ensure(); if (c && c.state === 'suspended') c.resume(); },
+    engineHum: function (speed) {
+      var c = ensure(); if (!c) return;
+      if (!engine) {
+        try { var o = c.createOscillator(), g = c.createGain(); o.type = 'sawtooth'; o.frequency.value = 58; g.gain.value = 0.0001; o.connect(g); g.connect(master); o.start(); engine = { osc: o, gain: g }; } catch (_) { return; }
+      }
+      var s = Math.max(0, Number(speed) || 0);
+      engine.osc.frequency.setTargetAtTime(48 + Math.min(170, s * 5.5), c.currentTime, 0.12);
+      engine.gain.gain.setTargetAtTime(s > 0.1 ? 0.035 + Math.min(0.06, s * 0.001) : 0.0001, c.currentTime, 0.2);
+    },
+    stopEngine: function () { if (engine && ctx) engine.gain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.12); },
+    footsteps: function (pace) { tone(95 + (pace || 0) * 4, 0.12, 'triangle', 0.08, 38); noise(0.09, 450, 0.045, false); },
+    gunshot: function () { tone(105, 0.22, 'sawtooth', 0.23, 26); noise(0.18, 1500, 0.19, false); },
+    sirenLoop: function (enabled) {
+      var c = ensure(); if (!c) return;
+      if (!enabled) { stop(siren); siren = null; return; }
+      if (siren) return;
+      try { var o = c.createOscillator(), g = c.createGain(), lfo = c.createOscillator(), lg = c.createGain(); o.type = 'square'; o.frequency.value = 650; lfo.frequency.value = 0.7; lg.gain.value = 370; lfo.connect(lg); lg.connect(o.frequency); g.gain.value = 0.045; o.connect(g); g.connect(master); o.start(); lfo.start(); siren = { source: o, gain: g, lfo: lfo }; } catch (_) {}
+    },
+    missionSting: function () { tone(392, 0.22, 'triangle', 0.09); setTimeout(function () { tone(523.25, 0.36, 'triangle', 0.12); }, 180); setTimeout(function () { tone(659.25, 0.48, 'sine', 0.12); }, 340); },
+    startAmbience: function () {
+      if (ambience) return;
+      var waves = noise(2.4, 520, 0.018, true);
+      var gull = noise(1.1, 2800, 0.004, true);
+      ambience = { waves: waves, gull: gull };
+      if (gull && ctx) {
+        var c = ctx;
+        (function callGull() { if (!ambience) return; var t = c.currentTime; try { gull.gain.gain.setValueAtTime(0.001, t); gull.gain.gain.linearRampToValueAtTime(0.009, t + 0.7); gull.gain.gain.linearRampToValueAtTime(0.001, t + 1.4); } catch (_) {} setTimeout(callGull, 6200 + Math.random() * 4800); })();
+      }
+    },
+    stopAmbience: function () { if (!ambience) return; stop(ambience.waves); stop(ambience.gull); ambience = null; },
+    update: function (dt) { void dt; }
+  };
+})(globalThis);

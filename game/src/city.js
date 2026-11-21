@@ -1,175 +1,173 @@
-(function () {
-  var group = new THREE.Group();
-  // Solano Bay repeats a small family of salt-worn stucco colors across a dense grid.
-  var palette = SF.CONFIG.palette.buildings;
-  var buildingGeo = new THREE.BoxGeometry(1, 1, 1);
-  var roofGeo = new THREE.BoxGeometry(1, 1, 1);
-  var dummy = new THREE.Object3D();
-  var windowCanvas = document.createElement('canvas');
-  windowCanvas.width = 128; windowCanvas.height = 256;
-  var wx = windowCanvas.getContext('2d');
-  wx.fillStyle = '#765e55'; wx.fillRect(0, 0, 128, 256);
-  for (var wy = 9; wy < 250; wy += 23) for (var xx = 8; xx < 124; xx += 18) {
-    wx.fillStyle = '#473e3a'; wx.fillRect(xx - 2, wy - 2, 13, 17);
-    wx.fillStyle = ((xx * 3 + wy * 7) % 5 === 0) ? '#ffe0a0' : '#86c8be';
-    wx.globalAlpha = ((xx + wy) % 4 === 0) ? 0.4 : 0.88; wx.fillRect(xx, wy, 9, 13); wx.globalAlpha = 1;
-  }
-  var emissionCanvas = document.createElement('canvas');
-  emissionCanvas.width = 128; emissionCanvas.height = 256;
-  var ex = emissionCanvas.getContext('2d');
-  ex.fillStyle = '#000'; ex.fillRect(0, 0, 128, 256);
-  for (var ey = 9; ey < 250; ey += 23) for (var exx = 8; exx < 124; exx += 18) if ((exx * 3 + ey * 7) % 5 === 0 || (exx + ey) % 4 !== 0) {
-    ex.fillStyle = ((exx + ey) % 3 === 0) ? '#8fe0d1' : '#ffd58a'; ex.fillRect(exx, ey, 9, 13);
-  }
-  var windowTex = new THREE.CanvasTexture(windowCanvas); windowTex.encoding = THREE.sRGBEncoding; windowTex.wrapS = windowTex.wrapT = THREE.RepeatWrapping;
-  var emissionTex = new THREE.CanvasTexture(emissionCanvas); emissionTex.encoding = THREE.sRGBEncoding; emissionTex.wrapS = emissionTex.wrapT = THREE.RepeatWrapping;
-  var buildingMat = new THREE.MeshStandardMaterial({ map: windowTex, emissiveMap: emissionTex, emissive: '#ffe0ac', emissiveIntensity: 0.72, roughness: 0.88 });
-  var roofMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1 });
-  var lots = [];
-  for (var gx = -3; gx <= 3; gx++) for (var gz = -3; gz <= 3; gz++) {
-    // Keep the dedicated Palma coastal drive clear of the westmost city blocks.
-    if (gx === -3) continue;
-    var x = gx * 82, z = gz * 82;
-    var count = SF.random.chance(0.34) ? 2 : 1;
-    for (var n = 0; n < count; n++) {
-      var w = SF.random.range(count === 1 ? 26 : 15, count === 1 ? 39 : 23);
-      var d = SF.random.range(count === 1 ? 25 : 15, count === 1 ? 38 : 23);
-      var ox = count === 1 ? 0 : (n === 0 ? -13 : 13);
-      var oz = count === 1 ? 0 : SF.random.range(-8, 8);
-      var downtown = Math.hypot(x - 8, z + 4);
-      var height = SF.random.range(12, 29) + Math.max(0, 52 - downtown * 0.18);
-      if (x > 145) height *= 0.58; // low roofs open the eastern hill and port skylines
-      height = Math.min(74, height);
-      lots.push({ x: x + ox, z: z + oz, w: w, d: d, h: height, color: palette[Math.floor(SF.random.next() * palette.length)] });
+(function (S) {
+  'use strict';
+  S.createCity = function () {
+    const T = THREE, C = S.Config, G = C.city, P = C.palette;
+    const random = S.Random(C.seed), root = new T.Group();
+    root.name = 'Solano Bay city';
+    const collisions = [], blocks = [], batches = {};
+    const cube = new T.BoxGeometry(1, 1, 1);
+    const cylinder = new T.CylinderGeometry(1, 1, 1, 7);
+    const leaf = new T.SphereGeometry(1, 6, 4);
+    const material = (color, extra) => new T.MeshStandardMaterial(Object.assign({ color, roughness: 0.88 }, extra));
+    function batch(name, geometry, mat) {
+      batches[name] = { geometry, material: mat, entries: [] };
     }
-  }
-  var buildings = new THREE.InstancedMesh(buildingGeo, buildingMat, lots.length);
-  var roofs = new THREE.InstancedMesh(roofGeo, roofMat, lots.length);
-  for (var b = 0; b < lots.length; b++) {
-    var lot = lots[b];
-    dummy.position.set(lot.x, lot.h / 2, lot.z); dummy.scale.set(lot.w, lot.h, lot.d); dummy.rotation.set(0, 0, 0); dummy.updateMatrix();
-    buildings.setMatrixAt(b, dummy.matrix); buildings.setColorAt(b, new THREE.Color(lot.color).offsetHSL((b % 3 - 1) * 0.015, 0.08, 0.025));
-    dummy.position.set(lot.x, lot.h + 0.45, lot.z); dummy.scale.set(lot.w + 0.7, 0.9, lot.d + 0.7); dummy.updateMatrix();
-    roofs.setMatrixAt(b, dummy.matrix); roofs.setColorAt(b, new THREE.Color(lot.color).multiplyScalar(0.42));
-  }
-  buildings.castShadow = true; buildings.receiveShadow = true; roofs.castShadow = true;
-  group.add(buildings, roofs);
-  var colliders = lots.map(function (l) { return { x: l.x, z: l.z, r: Math.max(l.w, l.d) * 0.45 }; });
-
-  var palmPoints = [];
-  for (var coastZ = -260; coastZ <= 260; coastZ += 32) palmPoints.push({ x: -254, z: coastZ, h: SF.random.range(7, 11) });
-  for (var streetZ = -246; streetZ <= 246; streetZ += 82) for (var streetX = -205; streetX <= 287; streetX += 82) {
-    if (Math.abs(streetX) < 205 && Math.abs(streetZ) < 205 && SF.random.chance(0.56)) continue;
-    palmPoints.push({ x: streetX + 11, z: streetZ + 11, h: SF.random.range(7, 10) });
-  }
-  var trunkGeo = new THREE.CylinderGeometry(0.36, 0.64, 1, 6);
-  var trunkMat = new THREE.MeshStandardMaterial({ color: '#936342', roughness: 1 });
-  var trunkMesh = new THREE.InstancedMesh(trunkGeo, trunkMat, palmPoints.length);
-  var frondGeo = new THREE.PlaneGeometry(1.25, 6, 1, 1);
-  var frondMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.94, side: THREE.DoubleSide });
-  var frondsA = new THREE.InstancedMesh(frondGeo, frondMat, palmPoints.length * 6);
-  var frondsB = new THREE.InstancedMesh(frondGeo, frondMat, palmPoints.length * 6);
-  var leafColors = ['#32684b','#477e56','#5c9058'];
-  var fi = 0;
-  palmPoints.forEach(function (p) {
-    dummy.position.set(p.x, p.h / 2, p.z); dummy.scale.set(1, p.h, 1); dummy.rotation.set(0, 0, (SF.random.next() - 0.5) * 0.06); dummy.updateMatrix(); trunkMesh.setMatrixAt(palmPoints.indexOf(p), dummy.matrix);
-    for (var f = 0; f < 6; f++) {
-      var angle = f * Math.PI / 3;
-      dummy.position.set(p.x + Math.cos(angle) * 2.35, p.h - 0.5, p.z + Math.sin(angle) * 2.35);
-      dummy.scale.set(1, 1, 1); dummy.rotation.set(-0.4, -angle, 0.22); dummy.updateMatrix();
-      frondsA.setMatrixAt(fi, dummy.matrix); frondsA.setColorAt(fi, new THREE.Color(leafColors[f % 3]));
-      dummy.rotation.set(-0.4, -angle + Math.PI / 2, 0.22); dummy.updateMatrix();
-      frondsB.setMatrixAt(fi, dummy.matrix); frondsB.setColorAt(fi, new THREE.Color(leafColors[(f + 1) % 3]));
-      fi++;
+    batch('buildings', cube, material(0xffffff));
+    batch('roofs', cube, material(0x735659));
+    batch('windows', cube, material(P.window, { emissive: P.window, emissiveIntensity: 0.65 }));
+    batch('sidewalks', cube, material(P.sidewalk));
+    batch('markings', cube, material(0xe7c18d));
+    batch('trunks', cylinder, material(0x896148));
+    batch('fronds', leaf, material(0x3d785c));
+    batch('lampPosts', cylinder, material(0x45474e, { metalness: 0.4 }));
+    batch('lampArms', cube, material(0x45474e));
+    batch('lampBulbs', cube, material(0xffda90, { emissive: 0xffb85c, emissiveIntensity: 1.5 }));
+    batch('benches', cube, material(0x955740));
+    batch('crates', cube, material(0xb5804e));
+    batch('containers', cube, material(0xffffff));
+    function add(name, x, y, z, sx, sy, sz, color, rotation) {
+      batches[name].entries.push({ x, y, z, sx, sy, sz, color, rotation: rotation || 0 });
     }
-  });
-  trunkMesh.castShadow = true; frondsA.castShadow = frondsB.castShadow = true;
-  group.add(trunkMesh, frondsA, frondsB);
-
-  var lampPoints = [];
-  for (var lz = -246; lz <= 246; lz += 82) for (var lx = -246; lx <= 246; lx += 82) {
-    lampPoints.push({ x: lx + 8, z: lz - 8 });
-  }
-  var poleGeo = new THREE.CylinderGeometry(0.17, 0.24, 8, 6);
-  var poleMesh = new THREE.InstancedMesh(poleGeo, new THREE.MeshStandardMaterial({ color: '#544c61', metalness: 0.4, roughness: 0.6 }), lampPoints.length);
-  var lampGeo = new THREE.SphereGeometry(0.62, 8, 6);
-  var lampMesh = new THREE.InstancedMesh(lampGeo, new THREE.MeshStandardMaterial({ color: '#ffc778', emissive: '#ff9a3c', emissiveIntensity: 1.8 }), lampPoints.length);
-  lampPoints.forEach(function (p, i) { dummy.position.set(p.x, 4, p.z); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); poleMesh.setMatrixAt(i, dummy.matrix); dummy.position.y = 8.1; dummy.scale.set(1, 0.8, 1); dummy.updateMatrix(); lampMesh.setMatrixAt(i, dummy.matrix); });
-  group.add(poleMesh, lampMesh);
-
-  function makeSign(text, color) {
-    var c = document.createElement('canvas'); c.width = 512; c.height = 128;
-    var g = c.getContext('2d'); g.fillStyle = '#20172d'; g.fillRect(0, 0, 512, 128);
-    g.strokeStyle = color; g.lineWidth = 8; g.strokeRect(5, 5, 502, 118);
-    g.fillStyle = color; g.font = 'bold 42px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 256, 64, 470);
-    var tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding;
-    return new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
-  }
-  var brandNames = ['SOLANO COLA','BAY FM 99.1','HOTEL MARISOL','PALMA AUTOS'];
-  var brandColors = ['#e76f5e','#52cfc1','#eab35f','#7caa91'];
-  var billboardMat = brandNames.map(function (name, i) { return makeSign(name, brandColors[i]); });
-  var boardGeo = new THREE.BoxGeometry(16, 4.5, 0.8);
-  var boardPoleGeo = new THREE.BoxGeometry(0.65, 7, 0.65);
-  for (var brand = 0; brand < billboardMat.length; brand++) {
-    var boards = new THREE.InstancedMesh(boardGeo, billboardMat[brand], 3);
-    for (var brandSlot = 0; brandSlot < 3; brandSlot++) {
-      var bb = brandSlot * billboardMat.length + brand;
-      var bx = -205 + (bb % 6) * 82, bz = -230 + Math.floor(bb / 6) * 460;
-      dummy.position.set(bx, 17 + (bb % 3) * 3, bz); dummy.scale.set(1, 1, 1); dummy.rotation.set(0, 0, 0); dummy.updateMatrix();
-      boards.setMatrixAt(brandSlot, dummy.matrix);
+    function bound(x, z, w, d, height, kind) {
+      collisions.push({ minX: x - w / 2, maxX: x + w / 2,
+        minZ: z - d / 2, maxZ: z + d / 2, minY: 0, maxY: height, kind });
     }
-    boards.castShadow = true; group.add(boards);
-  }
-  var boardPoles = new THREE.InstancedMesh(boardPoleGeo, trunkMat, 12);
-  for (var bp = 0; bp < 12; bp++) {
-    var poleX = -205 + (bp % 6) * 82, poleZ = -230 + Math.floor(bp / 6) * 460;
-    dummy.position.set(poleX, 11 + (bp % 3) * 3, poleZ); dummy.scale.set(1, 1, 1); dummy.rotation.set(0, 0, 0); dummy.updateMatrix(); boardPoles.setMatrixAt(bp, dummy.matrix);
-  }
-  group.add(boardPoles);
-
-  var benchMat = new THREE.MeshStandardMaterial({ color: '#aa714c', roughness: 0.9 });
-  var benchGeo = new THREE.BoxGeometry(5, 0.35, 1.4);
-  var benchLegGeo = new THREE.BoxGeometry(0.35, 1.3, 0.35);
-  var benches = new THREE.InstancedMesh(benchGeo, benchMat, 10);
-  var benchLegs = new THREE.InstancedMesh(benchLegGeo, benchMat, 20);
-  for (var bn = 0; bn < 10; bn++) {
-    var marketX = 123 + (bn % 5) * 25, marketZ = -65 + Math.floor(bn / 5) * 130;
-    dummy.position.set(marketX, 1.5, marketZ); dummy.scale.set(1, 1, 1); dummy.rotation.set(0, 0, 0); dummy.updateMatrix(); benches.setMatrixAt(bn, dummy.matrix);
-    for (var bl = -1; bl <= 1; bl += 2) { dummy.position.set(marketX + bl * 1.8, 0.8, marketZ); dummy.updateMatrix(); benchLegs.setMatrixAt(bn * 2 + (bl > 0 ? 1 : 0), dummy.matrix); }
-  }
-  group.add(benches, benchLegs);
-  var kioskMat = new THREE.MeshStandardMaterial({ color: '#f0ae55', roughness: 0.8 });
-  var kioskGeo = new THREE.BoxGeometry(9, 6, 7);
-  var kioskMesh = new THREE.InstancedMesh(kioskGeo, kioskMat, 3);
-  var canopyMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(10, 0.8, 8), billboardMat[0], 3);
-  for (var ki = 0; ki < 3; ki++) {
-    dummy.position.set(175 + ki * 35, 3, 0); dummy.scale.set(1, 1, 1); dummy.rotation.set(0, 0, 0); dummy.updateMatrix(); kioskMesh.setMatrixAt(ki, dummy.matrix);
-    dummy.position.y = 6.4; dummy.updateMatrix(); canopyMesh.setMatrixAt(ki, dummy.matrix); canopyMesh.setColorAt(ki, new THREE.Color(brandColors[ki]));
-  }
-  group.add(kioskMesh, canopyMesh);
-
-  var wheel = new THREE.Group(); wheel.position.set(-315, 27, 90);
-  var wheelMat = new THREE.MeshStandardMaterial({ color: '#b99c83', metalness: 0.34, roughness: 0.58 });
-  var rim = new THREE.Mesh(new THREE.TorusGeometry(24, 0.75, 8, 48), wheelMat); wheel.add(rim);
-  var spokeGeo = new THREE.CylinderGeometry(0.22, 0.22, 48, 6);
-  var spokes = new THREE.InstancedMesh(spokeGeo, wheelMat, 12);
-  for (var sp = 0; sp < 12; sp++) { dummy.position.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.rotation.set(0, 0, Math.PI / 2 + sp * Math.PI / 6); dummy.updateMatrix(); spokes.setMatrixAt(sp, dummy.matrix); }
-  spokes.castShadow = true; wheel.add(spokes);
-  var hub = new THREE.Mesh(new THREE.SphereGeometry(2.5, 12, 8), new THREE.MeshStandardMaterial({ color: '#f1bc70', emissive: '#c98547', emissiveIntensity: 0.3 })); wheel.add(hub);
-  var cabinGeo = new THREE.BoxGeometry(3.4, 3.6, 3.4);
-  var cabinMat = new THREE.MeshStandardMaterial({ color: '#ffbf54', roughness: 0.72 });
-  var cabins = new THREE.InstancedMesh(cabinGeo, cabinMat, 12);
-  for (var cab = 0; cab < 12; cab++) { var a = cab * Math.PI / 6; dummy.position.set(Math.sin(a) * 24, -Math.cos(a) * 24, 0); dummy.scale.set(1, 1, 1); dummy.rotation.set(0, 0, 0); dummy.updateMatrix(); cabins.setMatrixAt(cab, dummy.matrix); }
-  cabins.castShadow = true; wheel.add(cabins);
-  var supportGeo = new THREE.CylinderGeometry(0.55, 0.9, 30, 8);
-  var support1 = new THREE.Mesh(supportGeo, wheelMat); support1.position.set(-8, -23, -1); support1.rotation.z = -0.34; wheel.add(support1);
-  var support2 = support1.clone(); support2.position.x = 8; support2.rotation.z = 0.34; wheel.add(support2);
-  wheel.traverse(function (o) { if (o.isMesh) o.castShadow = true; });
-  group.add(wheel);
-  SF.render.scene.add(group);
-  SF.city = {
-    group: group,
-    colliders: colliders,
-    update: function (dt) { wheel.rotation.z += Math.min(dt, 0.05) * 0.12; }
+    function palm(x, z, rng) {
+      const h = rng.range(8, 12), angle = rng.range(0, Math.PI * 2);
+      add('trunks', x, h / 2, z, 0.23, h, 0.23);
+      for (let i = 0; i < 5; i++) {
+        const a = angle + i * Math.PI * 0.4;
+        add('fronds', x + Math.sin(a) * 1.8, h, z + Math.cos(a) * 1.8,
+          0.65, 0.32, 3.1, undefined, a);
+      }
+      bound(x, z, 0.5, 0.5, h, 'palm');
+    }
+    function lamp(x, z, angle) {
+      add('lampPosts', x, 3.7, z, 0.12, 7.4, 0.12);
+      add('lampArms', x + Math.sin(angle), 7.3, z + Math.cos(angle), 0.16, 0.16, 2.2, undefined, angle);
+      add('lampBulbs', x + Math.sin(angle) * 2, 7.15, z + Math.cos(angle) * 2, 0.65, 0.16, 1.1, undefined, angle);
+      bound(x, z, 0.3, 0.3, 7.5, 'lamp');
+    }
+    // Streets are the continuous ground; raised islands define each walkable block.
+    const island = G.block - G.road;
+    for (let row = 0; row < G.rows; row++) {
+      for (let col = 0; col < G.columns; col++) {
+        const x = G.minX + (col + 0.5) * G.block;
+        const z = G.minZ + (row + 0.5) * G.block;
+        const district = C.districts.find(d => col >= d.col[0] && col <= d.col[1] && row >= d.row[0] && row <= d.row[1]);
+        const rng = random.fork(col + ':' + row);
+        blocks.push({ x, z, district: district.id });
+        add('sidewalks', x, 0.12, z, island, 0.24, island);
+        for (let slot = 0; slot < 4; slot++) {
+          if (!rng.chance(district.density)) continue;
+          const bx = x + (slot % 2 ? 1 : -1) * 10.5;
+          const bz = z + (slot < 2 ? -1 : 1) * 10.5;
+          const w = rng.range(13, 18), d = rng.range(13, 18);
+          const h = rng.range(district.height[0], district.height[1]);
+          add('buildings', bx, h / 2 + 0.24, bz, w, h, d, rng.pick(district.colors));
+          add('roofs', bx, h + 0.45, bz, w + 0.3, 0.4, d + 0.3);
+          add('roofs', bx + w * 0.2, h + 1.1, bz, 3, 1.2, 3);
+          bound(bx, bz, w, d, h + 1.7, 'building');
+          // Window strips on all four faces, with individually seeded dark bays.
+          for (let y = 2.4; y < h - 1; y += G.floorHeight) {
+            for (let bay = -1; bay <= 1; bay++) {
+              if (rng.chance(0.75)) {
+                add('windows', bx + bay * w * 0.26, y, bz - d / 2 - 0.03, 1.65, 1.15, 0.06);
+                add('windows', bx + bay * w * 0.26, y, bz + d / 2 + 0.03, 1.65, 1.15, 0.06);
+              }
+              if (rng.chance(0.65)) {
+                add('windows', bx - w / 2 - 0.03, y, bz + bay * d * 0.26, 0.06, 1.15, 1.65);
+                add('windows', bx + w / 2 + 0.03, y, bz + bay * d * 0.26, 0.06, 1.15, 1.65);
+              }
+            }
+          }
+        }
+        const edge = island / 2 - 1.8;
+        lamp(x - edge, z - edge, -Math.PI / 2);
+        if (rng.chance(district.props.palms)) palm(x + edge, z - edge, rng);
+        if (rng.chance(district.props.palms)) palm(x - edge, z + edge, rng);
+        if (rng.chance(district.props.benches)) {
+          add('benches', x + edge, 0.8, z + 5, 1.1, 0.35, 3.2);
+          add('benches', x + edge + 0.4, 1.3, z + 5, 0.18, 0.8, 3.2);
+          bound(x + edge, z + 5, 1.5, 3.2, 1.7, 'bench');
+        }
+        if (rng.chance(district.props.crates)) {
+          add('crates', x + 3, 1.1, z + edge, 2, 2, 2);
+          bound(x + 3, z + edge, 2, 2, 2.1, 'crate');
+        }
+      }
+    }
+    // Lane dashes and crosswalks stay in the street corridors.
+    for (let i = 0; i <= G.columns; i++) {
+      const line = G.minX + i * G.block;
+      for (let j = 0; j < G.rows; j++) {
+        const center = G.minZ + (j + 0.5) * G.block;
+        for (let k = -2; k <= 2; k++) {
+          add('markings', line, 0.018, center + k * 9, 0.18, 0.025, 4.5);
+          add('markings', center + k * 9, 0.018, line, 4.5, 0.025, 0.18);
+        }
+        for (let k = -2; k <= 2; k++) {
+          add('markings', line + k * 2, 0.02, center - 25, 1.1, 0.025, 2.4);
+          add('markings', center - 25, 0.02, line + k * 2, 2.4, 0.025, 1.1);
+        }
+      }
+    }
+    for (let z = G.minZ; z <= G.maxZ; z += 24) palm(-304, z, random);
+    // Marina piers and industrial quays extend from the coastal promenade.
+    const docks = new T.Group();
+    for (let i = 0; i < 5; i++) {
+      const dock = new T.Mesh(cube, material(0x906d58));
+      dock.position.set(-382, -0.1, 20 + i * 43);
+      dock.scale.set(104, 1.2, 7); dock.receiveShadow = true;
+      docks.add(dock);
+      collisions.push({ minX: -434, maxX: -330, minZ: 16.5 + i * 43,
+        maxZ: 23.5 + i * 43, minY: -0.7, maxY: 0.5, kind: 'pier', walkable: true });
+    }
+    root.add(docks);
+    // Industrial container yard in the southeast outer strip.
+    for (let i = 0; i < 16; i++) {
+      const x = 312 + (i % 2) * 9, z = 40 + Math.floor(i / 2) * 24;
+      add('containers', x, 1.65, z, 7, 3.3, 16, random.pick([0xa34e41, 0x437f83, 0xbb8b48]));
+      bound(x, z, 7, 16, 3.3, 'container');
+    }
+    const dummy = new T.Object3D(), tint = new T.Color();
+    Object.keys(batches).forEach(name => {
+      const b = batches[name];
+      const mesh = new T.InstancedMesh(b.geometry, b.material, b.entries.length);
+      mesh.name = name;
+      b.entries.forEach((e, index) => {
+        dummy.position.set(e.x, e.y, e.z); dummy.rotation.set(0, e.rotation, 0);
+        dummy.scale.set(e.sx, e.sy, e.sz); dummy.updateMatrix();
+        mesh.setMatrixAt(index, dummy.matrix);
+        if (e.color !== undefined) mesh.setColorAt(index, tint.setHex(e.color));
+      });
+      mesh.castShadow = !['markings', 'windows', 'sidewalks', 'lampBulbs'].includes(name);
+      mesh.receiveShadow = name !== 'windows';
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      root.add(mesh);
+    });
+    const waterGeometry = new T.PlaneGeometry(1100, 1800, C.water.segments, C.water.segments);
+    waterGeometry.rotateX(-Math.PI / 2);
+    const water = new T.Mesh(waterGeometry, material(P.sea, { roughness: 0.32, metalness: 0.28 }));
+    water.position.set(G.seaX - 550, -1.0, 0); water.name = 'animated bay';
+    root.add(water);
+    const positions = waterGeometry.attributes.position;
+    const shore = new T.Mesh(new T.PlaneGeometry(5, 900), material(P.seaHighlight, { transparent: true, opacity: 0.65 }));
+    shore.rotation.x = -Math.PI / 2; shore.position.set(G.seaX - 2, -0.65, 0);
+    root.add(shore);
+    return {
+      group: root, collisions, blocks, water,
+      bounds: { minX: G.seaX, maxX: 342, minZ: -330, maxZ: 330 },
+      update: function (time) {
+        for (let i = 0; i < positions.count; i++) {
+          positions.setY(i, Math.sin(positions.getX(i) * 0.035 + time * C.water.speed) *
+            Math.cos(positions.getZ(i) * 0.022 + time * 0.3) * C.water.amplitude);
+        }
+        positions.needsUpdate = true;
+        // Small waves use upward normals to avoid per-frame geometry normal work.
+        shore.material.opacity = 0.48 + Math.sin(time * 0.65) * 0.12;
+      }
+    };
   };
-}());
+})(window.Sunfall = window.Sunfall || {});

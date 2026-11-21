@@ -1,38 +1,131 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta name="theme-color" content="#d97c61">
-<title>Sunfall v2 — Solano Bay</title>
-<style>
-:root{color-scheme:dark;--panel:rgba(18,27,34,.82);--edge:#ffffff22;--ink:#fff9ed;--muted:#dfd3c1;--amber:#ffbf68;--coral:#ff685b;--teal:#48e1d2}*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#d7896e;color:var(--ink);font:500 14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}canvas#game{position:absolute;inset:0;width:100%;height:100%;display:block;outline:none}#ui{position:absolute;inset:0;pointer-events:none;text-shadow:0 1px 3px #111a1fcc}.panel{background:var(--panel);border:1px solid var(--edge);border-radius:12px;box-shadow:0 8px 28px #11182055;backdrop-filter:blur(8px);padding:10px 13px}.eyebrow{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);font-weight:850}.muted{color:var(--muted)}.display{font-family:Impact,Haettenschweiler,"Arial Narrow Bold",system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase}
-#hud-mission{position:absolute;left:50%;top:18px;transform:translateX(-50%);width:min(570px,54vw);padding:10px 16px 11px;border-radius:9px;background:rgba(17,28,33,.76);border-left:2px solid var(--teal);transition:transform .22s ease-out,opacity .22s ease-out}#hud-mission.accepted{animation:arrive .24s ease-out}#mission-title{font-size:14px;font-weight:800;margin:0 0 1px;letter-spacing:.035em}#mission-objective{font-size:13px;color:#f5f1e8;margin:0}.mission-foot{display:flex;align-items:center;justify-content:flex-end;margin-top:4px;font-size:9px;color:#b8c8c4}#next-hint{display:none}#stage-progress{height:2px;margin-top:5px;background:var(--teal)}.stars.gain{animation:starGain .58s ease-out}
-#hud-status{position:absolute;right:20px;top:18px;min-width:205px;display:grid;grid-template-columns:1fr auto;align-items:center;gap:2px 16px;padding:10px 14px}#cash{font-size:18px;font-weight:850;font-variant-numeric:tabular-nums;color:var(--amber)}.stars{color:var(--coral);letter-spacing:2px;font-size:19px;line-height:1}.status-chip{grid-column:2;text-align:right;font-size:9px;letter-spacing:.12em;font-weight:900;color:#d4e6df}.day-block{grid-column:1;grid-row:1 / span 2}.cash-block{grid-column:2;grid-row:1 / span 2;text-align:right}.wanted-block{grid-column:1 / span 2;display:flex;align-items:center;justify-content:space-between;border-top:1px solid #ffffff18;padding-top:5px;margin-top:2px}.wanted-label{font-size:9px;letter-spacing:.15em;color:#d7d0c2;font-weight:800}
-#hud-vitals{position:absolute;left:18px;bottom:18px;width:194px;padding:9px 10px 10px}#minimap{width:150px;height:150px;border-radius:50%;border:2px solid #f4e8d977;background:#15252c;display:block;margin:0 auto 7px;box-shadow:0 0 0 3px #13212988}.district{font:800 11px/1.2 system-ui,sans-serif;color:#fff3df;letter-spacing:.045em;text-align:center;margin-bottom:6px}.meter{display:grid;grid-template-columns:37px 1fr 20px;gap:5px;align-items:center;margin:4px 1px;font-size:8px;letter-spacing:.07em;color:#eee1d0}.bar{height:4px;background:#ffffff28;border-radius:5px;overflow:hidden}.bar i{display:block;height:100%;width:50%;background:#f0b674;border-radius:5px;transition:width .16s}.bar.armour i{background:#53d4d4}.bar.rep{display:none}
-#hud-dialogue{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);width:min(470px,55vw);display:none;align-items:center;gap:10px;padding:9px 13px}.portrait{width:32px;height:32px;flex:0 0 32px;border-radius:50%;display:grid;place-items:center;background:#bd684f;color:#fff4e4;font-size:14px;font-weight:900}.dialogue-copy{min-width:0}.speaker{font-size:11px;font-weight:850}.speaker span{color:var(--amber);font-size:9px;text-transform:uppercase;letter-spacing:.09em;margin-left:6px}.dialogue-text{color:#f0e8dc;font-size:12px;margin-top:1px}
-#hud-action{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);display:none;padding:8px 12px;font-size:12px;background:rgba(17,28,33,.88);border:1px solid #ffffff25;border-radius:8px;color:#fff6e7}#hud-action b{color:var(--teal);margin-right:7px}.action-visible{display:block!important}#hud-vehicle{position:absolute;right:18px;bottom:18px;min-width:150px;display:none;padding:9px 12px}.vehicle-head{display:flex;align-items:center;justify-content:space-between;gap:14px}.vehicle-name{font-weight:850;font-size:12px}.vehicle-readout{display:flex;align-items:baseline;gap:6px;margin-top:5px}.speed{font:36px/1 Impact,Haettenschweiler,"Arial Narrow Bold",sans-serif;color:#fff}.speed-unit{font-size:8px;letter-spacing:.14em;color:#ddd0bf}.gear{margin-left:auto;font-weight:850;color:var(--amber)}.tag.stolen{color:var(--coral);font-size:8px;font-weight:900;letter-spacing:.1em}.vehicle-condition{margin-top:7px}
-#hud-toast{position:absolute;top:90px;left:50%;transform:translateX(-50%);opacity:0;transition:opacity .18s;font-size:11px;font-weight:800;color:#fff0d8}#hud-radio,#hud-police,#hud-weapons{display:none!important}#map-overlay,#busted,#wasted,#pause,#start-screen{position:absolute;inset:0;display:none;place-items:center;background:#17252be0;backdrop-filter:blur(7px);pointer-events:auto}#map-overlay{grid-template-columns:minmax(240px,1fr) 210px;gap:20px;padding:5vh 6vw}#city-map{width:min(74vh,72vw);height:min(74vh,72vw);border:1px solid #ffffff35;border-radius:12px;background:#26363b}.legend{align-self:center}.legend h2{color:var(--amber)}.legend p{margin:10px 0;color:var(--muted)}.overlay-card{text-align:center;width:min(620px,90vw);padding:36px 42px;background:rgba(18,27,34,.88)}.overlay-card h1{font:clamp(60px,11vw,118px)/.85 Impact,Haettenschweiler,"Arial Narrow Bold",sans-serif;letter-spacing:.095em;margin:7px 0 18px;color:#ffe0a1;text-shadow:0 5px 22px #ff93536c}.overlay-card h2{font:34px/1 Impact,Haettenschweiler,"Arial Narrow Bold",sans-serif;letter-spacing:.09em;text-transform:uppercase;color:var(--amber)}.overlay-card p{color:#f2e5d2}.title-kicker{color:#f4ad72;letter-spacing:.22em;font-size:10px;font-weight:850}.controls{font-size:11px;color:#e0d3c2;line-height:1.9}.click-prompt{margin-top:22px;color:var(--teal);font-weight:900;letter-spacing:.12em;text-transform:uppercase}.danger{color:var(--coral)!important;font-size:50px!important}
-@keyframes arrive{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}@keyframes starGain{0%{filter:brightness(1);transform:scale(1)}35%{filter:brightness(2.2);transform:scale(1.18)}100%{filter:brightness(1);transform:scale(1)}}
-.overlay-card button{display:block;width:100%;margin:8px 0;padding:9px 12px;border:1px solid #ffffff2b;border-radius:7px;background:#25383b;color:#fff4df;font:800 12px system-ui,sans-serif;cursor:pointer}.overlay-card button:hover{border-color:var(--teal)}.overlay-card button:disabled{cursor:not-allowed}
-@media(max-width:760px){#hud-mission{top:8px;width:48vw;padding:8px 10px}#mission-title{font-size:12px}#mission-objective{font-size:11px}#hud-status{right:8px;top:8px;min-width:150px;padding:8px 10px;gap:2px 10px}#hud-vitals{left:8px;bottom:8px;width:166px;padding:7px}#minimap{width:124px;height:124px}#hud-vehicle{right:8px;bottom:8px;min-width:120px}.overlay-card{padding:28px 18px}#hud-dialogue{bottom:8px;width:92vw}}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#171b2c">
+  <meta name="description" content="Sunfall — Solano Bay. An open-world crime game foundation.">
+  <title>SUNFALL · Solano Bay</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root { color-scheme: dark; --ink: #171b2c; --panel: rgba(19,23,36,.88); --white: #fff6ea; --muted: #d0c8c5; --cash: #ffc56b; --danger: #ff7069; --teal: #50ebce; --display: Impact, 'Arial Narrow', 'Roboto Condensed', sans-serif; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { background: #554975; color: var(--white); font: 15px/1.5 system-ui, sans-serif; }
+    button { font: inherit; color: inherit; cursor: pointer; }
+    button:disabled { cursor: default; color: #ada8ad; }
+    button:focus-visible { outline: 2px solid var(--teal); outline-offset: 5px; }
+    [hidden] { display: none !important; }
+    #viewport, #viewport > canvas, .screen, #hud { position: fixed; inset: 0; width: 100%; height: 100%; }
+    #viewport > canvas { display: block; }
+    .screen { display: flex; flex-direction: column; justify-content: center; padding: clamp(28px,7vw,110px); }
+    #start-screen { background: linear-gradient(90deg,rgba(20,20,36,.9),rgba(25,22,38,.46) 45%,transparent 85%); }
+    .eyebrow { margin: 0 0 15px; font-size: 11px; letter-spacing: .3em; text-transform: uppercase; color: var(--cash); }
+    h1 { font: 900 clamp(76px,15vw,190px)/.88 var(--display); letter-spacing: -.015em; margin: 0; text-shadow: 0 4px 30px #4a293d; }
+    .subtitle { margin: 20px 0 45px 5px; font: 500 clamp(15px,2vw,24px)/1.2 system-ui,sans-serif; letter-spacing: .43em; text-transform: uppercase; }
+    .menu { display: grid; gap: 9px; width: 240px; }
+    .menu button { background: transparent; border: 0; border-left: 2px solid transparent; padding: 8px 16px; text-align: left; transition: background 180ms ease-out,border-color 180ms ease-out; }
+    .menu button:hover:not(:disabled), .menu button:focus-visible { background: rgba(255,255,255,.08); border-left-color: var(--teal); }
+    .menu small { display: block; font-size: 10px; letter-spacing: .08em; color: var(--muted); }
+    #loading-note { color: var(--muted); font-size: 12px; margin: 32px 0 0 18px; }
+    .edition { position: absolute; right: 28px; bottom: 22px; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--white); text-shadow: 0 1px 5px #171b2c; }
+    #hud { pointer-events: none; padding: 24px; }
+    .panel { background: var(--panel); box-shadow: 0 4px 22px #14152330; }
+    #map-cluster { position: absolute; bottom: max(22px,env(safe-area-inset-bottom)); left: max(24px,env(safe-area-inset-left)); width: 180px; text-align: center; }
+    #minimap { display: block; width: 166px; height: 166px; margin: auto; border: 4px solid rgba(24,28,41,.95); border-radius: 50%; box-shadow: 0 3px 20px #13172580; }
+    .north { position: absolute; top: 5px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: 800; text-shadow: 0 1px 3px black; }
+    #district-name { display: inline-block; padding: 4px 12px; margin-top: 9px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+    #status-cluster { position: absolute; top: max(24px,env(safe-area-inset-top)); right: max(24px,env(safe-area-inset-right)); padding: 13px 19px; min-width: 150px; text-align: right; border-top: 2px solid var(--cash); }
+    #cash { font-size: 23px; color: var(--cash); font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: .02em; }
+    #wanted { color: #89838e; font-size: 16px; letter-spacing: .2em; }
+    #wanted .active { color: var(--danger); }
+    #objective { position: absolute; left: 50%; top: max(24px,env(safe-area-inset-top)); transform: translateX(-50%); max-width: min(470px,45vw); padding: 11px 20px; border-left: 3px solid var(--teal); font-size: 12px; text-align: center; }
+    #action-prompt { position: absolute; bottom: max(32px,env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); max-width: 48vw; padding: 10px 18px; font-size: 12px; text-align: center; }
+    kbd { display: inline-block; border: 1px solid #c6beb9; border-radius: 3px; padding: 0 5px; font: 11px/1.6 system-ui,sans-serif; margin-right: 6px; }
+    #dialogue { position: absolute; left: 50%; bottom: 105px; transform: translateX(-50%); width: min(600px,80vw); padding: 18px 24px; border-left: 3px solid var(--cash); }
+    #dialogue-speaker { color: var(--cash); letter-spacing: .13em; font-size: 11px; text-transform: uppercase; }
+    #dialogue-text { margin: 6px 0 0; }
+    .overlay { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(14,18,30,.76); padding: 25px; }
+    .card { width: min(470px,100%); max-height: 90vh; overflow: auto; padding: 35px; background: #1c2031; border-top: 2px solid var(--teal); box-shadow: 0 20px 80px #0005; }
+    .card h2 { margin: 0 0 20px; font: 38px/1.1 var(--display); letter-spacing: .04em; text-transform: uppercase; }
+    .card p { color: var(--muted); }
+    .card button { display: block; background: #ffffff0c; border: 1px solid #ffffff30; padding: 10px 18px; margin-top: 12px; transition: background 180ms ease-out; }
+    .card button:hover { background: #ffffff1c; }
+    #complete-reward { color: var(--cash); font-variant-numeric: tabular-nums; }
+    noscript { position: fixed; inset: 30px; padding: 30px; background: #171b2c; z-index: 10; }
+    @media(max-width: 650px) { #status-cluster { top: 14px; right: 14px; padding: 8px 12px; min-width: 115px; } #cash { font-size: 19px; } #objective { top: 100px; max-width: 85vw; width: max-content; } #map-cluster { left: 12px; bottom: 16px; width: 132px; } #minimap { width: 120px; height: 120px; } #district-name { font-size: 9px; } #action-prompt { left: auto; right: 14px; transform: none; max-width: 48vw; bottom: 25px; } .subtitle { letter-spacing: .25em; } }
+    @media(prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+  </style>
 </head>
 <body>
-<canvas id="game" tabindex="0" aria-label="Sunfall v2, Solano Bay open world"></canvas>
-<div id="ui">
-<section id="hud-mission" class="panel"><div class="eyebrow" id="chapter-label">SOLANO BAY · FREE ROAM</div><div id="mission-title">A new day in the bay</div><div id="mission-objective">Find Marco near Palma Strand.</div><div class="bar"><i id="stage-progress" style="width:0%"></i></div><div class="mission-foot"><span id="stage-count">Awaiting a lead</span><span id="next-hint">E · interact</span></div></section>
-<section id="hud-status" class="panel"><div class="day-block"><div class="eyebrow" id="day-label">DAY 1</div><div id="clock">17:40</div></div><div class="cash-block"><div class="eyebrow">CASH</div><div id="cash">$350</div></div><div class="wanted-block"><span class="wanted-label">WANTED</span><span id="wanted-stars" class="stars">☆☆☆☆☆</span><span id="wanted-status" class="status-chip">CLEAR</span></div></section>
-<section id="hud-vitals" class="panel"><canvas id="minimap" width="220" height="220"></canvas><div class="district" id="district-name">Palma Strand</div><div class="meter"><span>HEALTH</span><div class="bar"><i id="health-fill"></i></div><span id="health-value">100</span></div><div class="meter"><span>ARMOUR</span><div class="bar armour"><i id="armour-fill"></i></div><span id="armour-value">0</span></div><div class="meter"><span class="rep" id="rep-rank">RUNNER</span><div class="bar rep"><i id="rep-fill"></i></div><span class="rep" id="rep-value">0</span></div></section>
-<section id="hud-dialogue" class="panel"><div class="portrait" id="portrait">M</div><div class="dialogue-copy"><div class="speaker"><b id="speaker-name">Marco Reyes</b><span id="speaker-role">Fixer</span></div><div class="dialogue-text" id="dialogue-text"></div></div></section>
-<div id="hud-action"><b>E</b><span id="action-label">Talk to Marco</span></div>
-<section id="hud-vehicle" class="panel"><div class="vehicle-head"><span class="vehicle-name" id="vehicle-name">Palma Cruiser</span><span class="tag stolen" id="stolen-tag">STOLEN</span></div><div class="bar vehicle-condition"><i id="vehicle-condition"></i></div><div class="vehicle-readout"><span class="speed" id="speed">0</span><span class="speed-unit">KM/H</span><span class="gear" id="gear">N</span></div></section>
-<section id="hud-weapons" aria-label="Weapons"><div class="weapon-slot active" data-slot="0"><span class="weapon-key">1</span><span class="weapon-name">Fists</span><span class="weapon-ammo">∞</span></div><div class="weapon-slot" data-slot="1"><span class="weapon-key">2</span><span class="weapon-name">P9 Sidearm</span><span class="weapon-ammo">—</span></div><div class="weapon-slot" data-slot="2"><span class="weapon-key">3</span><span class="weapon-name">Hornet SMG</span><span class="weapon-ammo">—</span></div><div class="weapon-slot" data-slot="3"><span class="weapon-key">4</span><span class="weapon-name">Bulldog Scatter</span><span class="weapon-ammo">—</span></div><div class="weapon-slot" data-slot="4"><span class="weapon-key">5</span><span class="weapon-name">Longshot Rifle</span><span class="weapon-ammo">—</span></div></section>
-<section id="hud-police"><div id="police-rows"></div></section><div id="hud-toast" class="panel"></div><div id="hud-radio" class="panel"><span id="radio-track"></span></div>
-<section id="map-overlay"><canvas id="city-map" width="900" height="900"></canvas><div class="legend"><div class="eyebrow">SOLANO BAY</div><h2>City map</h2><div id="map-legend"></div><p>M or Esc to close</p></div></section>
-<section id="busted"><div class="overlay-card panel"><h2 class="danger">BUSTED</h2><p>The Bay Patrol has you in custody.</p><p id="busted-fee"></p><p class="click-prompt">Press E to return to your safehouse</p></div></section>
-<section id="wasted"><div class="overlay-card panel"><h2 class="danger">WASTED</h2><p>The sunset keeps moving without you.</p><p id="wasted-fee"></p><p class="click-prompt">Press E to recover</p></div></section>
-<section id="pause"><div class="overlay-card panel"><div class="eyebrow">SOLANO BAY · PAUSED</div><h2>Take a breath</h2><p>Progress saves at your safehouse.</p><div class="controls">WASD / Arrows move and steer · Shift sprint<br>Space jump / handbrake · E enter, exit, interact<br>Mouse aim · Left click fight · R reload · 1–5 weapons<br>N radio · M map · Esc / P resume</div></div></section>
-<section id="start-screen"><div class="overlay-card panel"><div class="title-kicker">SOLANO BAY · GOLDEN HOUR, BAD IDEAS</div><h1>SUNFALL</h1><p>Six districts. Five stars. One long evening to make your name.</p><div class="controls">WASD drive or walk · E enter a car / meet the crew · Mouse look<br>Space jumps or handbrakes · Left click fights · Shift runs</div><div class="click-prompt">Click anywhere to enter the bay</div></div></section>
-</div>
-<script src="./vendor/three.min.js"></script>
-<script src="./src/config.js"></script><script src="./src/random.js"></script><script src="./src/input.js"></script><script src="./src/render.js"></script><script src="./src/world.js"></script><script src="./src/city.js"></script><script src="./src/vehicles.js"></script><script src="./src/traffic.js"></script><script src="./src/peds.js"></script><script src="./src/weapons.js"></script><script src="./src/police.js"></script><script src="./src/player.js"></script><script src="./src/missions.js"></script><script src="./src/hud.js"></script><script src="./src/audio.js"></script><script src="./src/save.js"></script><script src="./src/shots.js"></script><script src="./src/main.js"></script>
-</body></html>
+  <div id="viewport"></div>
+  <main id="start-screen" class="screen" aria-label="Sunfall main menu">
+    <p class="eyebrow">The coast belongs to no one</p>
+    <h1>SUNFALL</h1>
+    <p class="subtitle">Solano Bay</p>
+    <nav class="menu" aria-label="Main menu">
+      <button id="new-game" type="button" disabled>New game</button>
+      <button id="continue-game" type="button" disabled aria-describedby="continue-note">Continue<small id="continue-note">No saved game</small></button>
+      <button id="how-button" type="button">How to play</button>
+    </nav>
+    <p id="loading-note" role="status">Building Solano Bay…</p>
+    <span class="edition">World foundation · v2</span>
+  </main>
+  <section id="hud" aria-label="Game information" hidden>
+    <div id="map-cluster">
+      <canvas id="minimap" width="256" height="256" aria-label="Local map, north is up"></canvas>
+      <span class="north" aria-hidden="true">N</span>
+      <div id="district-name" class="panel" aria-live="polite">Palma Strand</div>
+    </div>
+    <div id="status-cluster" class="panel">
+      <div id="cash" aria-label="Cash: zero dollars">$0</div>
+      <div id="wanted" role="img" aria-label="Wanted level: zero of five"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div>
+    </div>
+    <div id="objective" class="panel" role="status"><span id="objective-text"></span></div>
+    <div id="action-prompt" class="panel"><span id="action-text"></span></div>
+    <div id="dialogue" class="panel" aria-live="polite" hidden>
+      <strong id="dialogue-speaker"></strong><p id="dialogue-text"></p>
+    </div>
+  </section>
+  <section id="pause-overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="pause-title" hidden>
+    <div class="card"><p class="eyebrow">Solano Bay</p><h2 id="pause-title">Paused</h2>
+      <button id="resume-button" type="button">Resume</button><button id="title-button" type="button">Return to title</button>
+      <p><kbd>Esc</kbd> or <kbd>P</kbd> Resume</p>
+    </div>
+  </section>
+  <section id="how-overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="how-title" hidden>
+    <div class="card"><p class="eyebrow">Welcome to the bay</p><h2 id="how-title">How to play</h2>
+      <p>This foundation build previews Solano Bay’s city, lighting, and interface. New game opens the street camera at your Strand safehouse.</p>
+      <p>Movement, driving, crime, missions, and saving arrive in later builds.</p>
+      <p><kbd>Esc</kbd> or <kbd>P</kbd> Pause the city preview. Teal rings mark future contacts and the safehouse.</p>
+      <button id="close-how" type="button">Back</button>
+    </div>
+  </section>
+  <section id="mission-complete" class="overlay" role="dialog" aria-modal="true" aria-labelledby="complete-title" hidden>
+    <div class="card"><p class="eyebrow">Solano Bay</p><h2 id="complete-title">Mission complete</h2>
+      <p id="complete-name"></p><p id="complete-reward"></p>
+    </div>
+  </section>
+  <noscript>Sunfall needs JavaScript and WebGL to draw Solano Bay. Enable JavaScript, then reload.</noscript>
+  <script src="vendor/three.min.js"></script>
+  <script src="src/config.js"></script>
+  <script src="src/random.js"></script>
+  <script src="src/city.js"></script>
+  <script src="src/world.js"></script>
+  <script src="src/render.js"></script>
+  <script src="src/player.js"></script>
+  <script src="src/vehicles.js"></script>
+  <script src="src/traffic.js"></script>
+  <script src="src/peds.js"></script>
+  <script src="src/police.js"></script>
+  <script src="src/weapons.js"></script>
+  <script src="src/input.js"></script>
+  <script src="src/audio.js"></script>
+  <script src="src/save.js"></script>
+  <script src="src/missions.js"></script>
+  <script src="src/hud.js"></script>
+  <script src="src/shots.js"></script>
+  <script src="src/runtime.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>

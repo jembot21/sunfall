@@ -1,99 +1,143 @@
-(function () {
+(() => {
   'use strict';
-  var fleet = [], cars = SF.vehicles.list, grid = SF.vehicles.step;
-  var head = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
-  var dx = [0, 1, 0, -1], dz = [1, 0, -1, 0];
-  var lane = 4, edge = SF.vehicles.half + 22, frame = 0, targetCount = 16;
-  function place(state, initial) {
-    var car = state.car, dir = Math.floor(SF.random.next() * 4);
-    var center = (Math.floor(SF.random.next() * 6) - 3) * grid + grid / 2;
-    var along = initial ? (SF.random.next() - 0.5) * 530 : -edge;
-    var x = dx[dir] ? dx[dir] * along : center - dz[dir] * lane;
-    var z = dz[dir] ? dz[dir] * along : center + dx[dir] * lane;
-    car.reset(x, z, head[dir]); car.driver = 'ai';
-    state.dir = dir; state.wait = 0; state.blocked = 0; state.dt = 0;
-    var cross = dx[dir] ? x : z;
-    state.cross = (Math.floor(cross / grid) + 0.5) * grid;
-    if ((state.cross - cross) * (dx[dir] || dz[dir]) < 12) state.cross += (dx[dir] || dz[dir]) * grid;
-    state.turn = -1; state.cruise = 13 + SF.random.next() * 7;
+  const SF = globalThis.SF ??= {};
+  const moving = [], parked = [];
+  const vo = ['sportsCoupe', 'sedan', 'taxi', 'truck', 'van', 'sportsCar'];
+  let seed = 64351, tick = 0, signals = 0;
+  const random = () => typeof SF.random === 'function' ? SF.random() :
+    ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const pick = list => list[Math.min(list.length - 1, Math.floor(random() * list.length))];
+  const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+
+  function axes() {
+    const grid = SF.city?.streetGrid ?? SF.world?.streetGrid ?? SF.city?.grid ?? SF.world?.grid;
+    const values = axis => {
+      const source = grid?.[axis] ?? grid?.[axis + 's'] ?? SF.city?.['street' + axis.toUpperCase()];
+      if (!Array.isArray(source)) return [];
+      return [...new Set(source.map(value => Number.isFinite(value) ? value : value?.[axis])
+        .filter(Number.isFinite))].sort((a, b) => a - b);
+    };
+    const x = values('x'), z = values('z');
+    if (x.length > 1 && z.length > 1) return { x, z };
+    const min = SF.player.constrain({ x: -Infinity, z: -Infinity });
+    const max = SF.player.constrain({ x: Infinity, z: Infinity });
+    const spacing = SF.CONFIG?.tuning?.blockSize || 24;
+    const fallback = (low, high) => {
+      const result = [];
+      for (let n = Math.ceil((low + 3) / spacing) * spacing; n < high - 3; n += spacing) result.push(n);
+      return result.length > 1 ? result : [low + (high - low) * .25, low + (high - low) * .75];
+    };
+    return { x: x.length > 1 ? x : fallback(min.x, max.x), z: z.length > 1 ? z : fallback(min.z, max.z) };
   }
-  for (var n = 0; n < 26; n++) {
-    var car = SF.vehicles.create(0, 0, 0, n % SF.vehicles.defs.length);
-    var slot = {car: car, dir: 0, cross: 0, turn: -1, wait: 0, blocked: 0, dt: 0, cruise: 15};
-    fleet.push(slot);
-    if (n < targetCount) place(slot, true);
-    else car.active = car.mesh.visible = false;
+
+  function neighbors(grid, point) {
+    const i = grid.x.indexOf(point.x), j = grid.z.indexOf(point.z);
+    return [
+      ...[grid.x[i - 1], grid.x[i + 1]].filter(Number.isFinite).map(x => ({ x, z: point.z })),
+      ...[grid.z[j - 1], grid.z[j + 1]].filter(Number.isFinite).map(z => ({ x: point.x, z }))
+    ];
   }
-  function gapTo(p, x, z, fx, fz, clearance) {
-    var rx = p.x - x, rz = p.z - z, forward = rx * fx + rz * fz;
-    return forward > 0 && Math.abs(rx * fz - rz * fx) < 1.95 ? Math.max(0, forward - clearance) : 1e6;
+
+  function lanePoint(a, b, offset) {
+    const yaw = Math.atan2(b.x - a.x, b.z - a.z);
+    return { x: a.x + Math.cos(yaw) * offset, z: a.z - Math.sin(yaw) * offset, yaw };
   }
-  function drive(slot, dt, player) {
-    var car = slot.car, p = car.pos, dir = slot.dir, fx = dx[dir], fz = dz[dir];
-    var along = fx ? p.x : p.z, sign = fx || fz;
-    var remaining = (slot.cross - along) * sign;
-    if (remaining < 23 && slot.turn < 0) {
-      var roll = SF.random.next();
-      slot.turn = roll < 0.23 ? (dir + 1) % 4 : roll < 0.46 ? (dir + 3) % 4 : dir;
+
+  function spawnNear(player, park, grid) {
+    const localX=grid.x.filter(x=>Math.abs(x-player.x)<70), localZ=grid.z.filter(z=>Math.abs(z-player.z)<70);
+    const node = { x: pick(localX.length?localX:grid.x), z: pick(localZ.length?localZ:grid.z) };
+    const next = pick(neighbors(grid, node));
+    const gap = distance(node, player);
+    if (gap < 12 || gap > 69 || !next) return;
+    const point = lanePoint(node, next, park ? 3.2 : 1.45);
+    const progress = park ? .35 + random() * .29 : .14;
+    point.x += (next.x - node.x) * progress;
+    point.z += (next.z - node.z) * progress;
+    if (SF.vehicles.instances.some(car => distance(point, car.mesh.position) < 6)) return;
+    const record = { from: node, to: next, progress, crossed: false };
+    record.car = SF.vehicles.spawn(pick(vo), point, { heading: point.yaw, driver: park ? null : record });
+    if (record.car) (park ? parked : moving).push(record);
+  }
+
+  function advance(record, dt, player, grid) {
+    const { car, from, to } = record;
+    const p = car.mesh.position;
+    const dx = to.x - from.x, dz = to.z - from.z, length = Math.hypot(dx, dz);
+    const fx = dx / length, fz = dz / length;
+    const remaining = length * (1 - record.progress);
+    const red = (Math.floor(signals / 5) + (dx !== 0 ? 1 : 0)) % 2 === 0;
+    function blocks(point, width) {
+      const x = point.x - p.x, z = point.z - p.z;
+      const ahead = x * fx + z * fz;
+      return ahead > -.5 && ahead < 3.2 + car.speed * .45 && Math.abs(x * fz - z * fx) < width;
     }
-    var target = slot.turn < 0 ? dir : slot.turn;
-    var corner = slot.cross + (fx ? -dz[target] : dx[target]) * lane;
-    var gap = player && !player.inCar ? gapTo(player.pos, p.x, p.z, fx, fz, 3.4) : 1e6;
-    for (var i = 0; i < cars.length; i++) {
-      var other = cars[i];
-      if (other !== car && other.active) gap = Math.min(gap, gapTo(other.pos, p.x, p.z, fx, fz, 5.4));
+    const obstacle = blocks(player, SF.player.car ? 2 : 1.3) ||
+      SF.vehicles.instances.some(other => other !== car && blocks(other.mesh.position, 1.75));
+    const crossing = !record.crossed && red && remaining < 6;
+    const target = obstacle ? 0 : crossing ? Math.max(0, (remaining - 2.8) * 1.4) : car.spec.speed * .41;
+    car.brake = target < car.speed - .2 || obstacle || crossing;
+    car.speed += Math.max(-14 * dt, Math.min(4 * dt, target - car.speed));
+    record.progress += car.speed * dt / length;
+    if (remaining < 2.7 && !red) record.crossed = true;
+    if (record.progress >= 1) {
+      const choices = neighbors(grid, to).filter(point => distance(point, from) > 0);
+      record.from = to;
+      record.to = choices.length ? pick(choices) : from;
+      record.progress = 0;
+      record.crossed = false;
     }
-    if (gap < 1) {
-      slot.wait = 0.48;
-      slot.blocked += dt;
-      if (slot.blocked > 8 && (!player || p.distanceToSquared(player.pos) > 115 * 115)) { place(slot, false); return; }
-    } else { slot.wait = Math.max(0, slot.wait - dt); slot.blocked = 0; }
-    var goal = slot.wait ? 0 : Math.min(target !== dir ? 9 : slot.cruise, Math.sqrt(13 * gap));
-    car.speed += Math.max(-30 * dt, Math.min(6.5 * dt, goal - car.speed));
-    var move = Math.min(gap, car.speed * dt), toCorner = (corner - along) * sign;
-    if (remaining < 23 && move >= toCorner) {
-      var reach = Math.max(0, toCorner);
-      p.x += fx * reach; p.z += fz * reach; move -= reach;
-      slot.dir = dir = target; fx = dx[dir]; fz = dz[dir]; sign = fx || fz;
-      along = fx ? p.x : p.z;
-      slot.cross = (Math.floor(along / grid) + 0.5) * grid;
-      if ((slot.cross - along) * sign < 12) slot.cross += sign * grid;
-      slot.turn = -1;
-    }
-    p.x += fx * move; p.z += fz * move;
-    p.y = SF.world.groundY(p.x, p.z);
-    var angle = head[dir] - car.heading;
-    car.heading += Math.atan2(Math.sin(angle), Math.cos(angle)) * Math.min(1, dt * 12);
-    car.mesh.rotation.y = car.heading;
-    car.vx = fx * car.speed; car.vz = fz * car.speed;
-    car.spin -= move / 0.36;
-    for (var j = 0; j < 4; j++) car.wheels[j].rotation.x = car.spin;
-    if (Math.abs(p.x) > edge + 1 || Math.abs(p.z) > edge + 1) place(slot, false);
+    const point = lanePoint(record.from, record.to, 1.45);
+    const yawDelta = point.yaw - car.mesh.rotation.y;
+    const turn = Math.atan2(Math.sin(yawDelta), Math.cos(yawDelta));
+    car.steer = Math.max(-1, Math.min(1, turn));
+    car.mesh.rotation.y += turn * Math.min(1, dt * 8);
+    const x = point.x + (record.to.x - record.from.x) * record.progress;
+    const z = point.z + (record.to.z - record.from.z) * record.progress;
+    p.x += (x - p.x) * Math.min(1, dt * 13);
+    p.z += (z - p.z) * Math.min(1, dt * 13);
   }
-  function update(dt) {
-    var player = SF.player, count = 0, spare = null;
-    frame = (frame + 1) % 20;
-    for (var i = 0; i < fleet.length; i++) {
-      var slot = fleet[i], car = slot.car;
-      if (car.driver !== 'ai') {
-        if (!car.active || (car.driver === null && player &&
-            (car.health <= 0 || car.stolen) && car.pos.distanceToSquared(player.pos) > 350 * 350)) spare = slot;
-        continue;
+
+  SF.traffic = {
+    moving, parked, axes, pick, random, distance, beamCar: null,
+    update(dt) {
+      const player = SF.player.position;
+      if (!player || !SF.vehicles) return;
+      signals += dt;
+      tick -= dt;
+      const grid = this.grid ??= axes();
+      this.beamCar = null;
+      let beamDistance = 28;
+      for (const records of [moving, parked]) {
+        for (let i = records.length - 1; i >= 0; i--) {
+          const record = records[i], car = record.car;
+          const gap = distance(player, car.mesh.position);
+          if (car.driver === SF.player) {
+            if (records === moving) {
+              parked.push(record);
+              records.splice(i, 1);
+            }
+          }
+          else if (gap > 86) {
+            SF.vehicles.remove(car);
+            records.splice(i, 1);
+          } else if (records === moving && car.driver === record) {
+            advance(record, dt, player, grid);
+            if (gap < beamDistance) {
+              beamDistance = gap;
+              this.beamCar = car;
+            }
+          } else if (records === moving) {
+            parked.push(record);
+            records.splice(i, 1);
+          }
+        }
       }
-      count++;
-      var dist = player ? car.pos.distanceToSquared(player.pos) : 0;
-      if (dist > 350 * 350) { slot.dt = 0; continue; }
-      if (car.health <= 0) {
-        if (dist > 75 * 75) place(slot, false);
-        else car.speed = car.vx = car.vz = 0;
-        continue;
+      if (tick > 0) return;
+      tick = .25;
+      for (let i = 0; i < 4; i++) {
+        if (moving.length < 12) spawnNear(player, false, grid);
+        if (parked.length < 12) spawnNear(player, true, grid);
       }
-      slot.dt = Math.min(0.2, slot.dt + dt);
-      var divisor = dist > 200 * 200 ? 5 : dist > 100 * 100 ? 4 : 1;
-      if ((frame + i) % divisor) continue;
-      drive(slot, slot.dt, player); slot.dt = 0;
     }
-    if (count < targetCount && spare) place(spare, false);
-  }
-  SF.traffic = {update: update, fleet: fleet};
-}());
+  };
+})();
