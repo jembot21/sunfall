@@ -1,56 +1,63 @@
 (function () {
   'use strict';
-  const SF = window.SF, T = THREE, C = SF.CONFIG;
-  const world = SF.world = {
-    spawn: { x: -335, y: 0.55, z: -241, heading: Math.PI / 2 },
-    safehouse: { x: -345, y: 0.55, z: -241, district: 'Palma Strand' },
+  var SF = window.SF, C = SF.CONFIG, S = C.street, T = window.THREE;
+  var world = SF.world = {
+    scene: null, spawn: { x: -516, y: 0.24, z: 276.5, heading: Math.PI / 2, district: 'palma' },
+    safehouse: { id: 'palma-safehouse', name: 'Palma Apartment', x: -511, y: 0.24, z: 273.5, district: 'palma' },
+    districtTriggers: [], trafficSpawns: [], pedestrianSpawns: [], parkingSpots: [],
     markers: [
-      { id: 'safehouse', kind: 'safehouse', name: 'Palma apartment', x: -345, z: -241 },
-      { id: 'crew', kind: 'mission', name: 'Meet the crew', x: -280, z: -241 },
-      { id: 'marina', kind: 'activity', name: 'Marina run', x: -30, z: -223 },
-      { id: 'port', kind: 'mission', name: 'Port business', x: 280, z: 223 },
-      { id: 'garage', kind: 'activity', name: 'Hillcrest garage', x: 20, z: 115 }
-    ],
-    trafficSpawns: [], pedestrianSpawns: [], districtTriggers: [], parkingSpots: SF.city.parkingSpots
+      { id: 'crew-meet', kind: 'mission', name: 'The first call', x: -499, y: 0.24, z: 276.5, district: 'palma' },
+      { id: 'marina-work', kind: 'activity', name: 'Marina jobs', x: -499, y: 0.24, z: -299.5, district: 'marina' },
+      { id: 'oldtown-work', kind: 'activity', name: 'Old Town jobs', x: -211, y: 0.24, z: 180.5, district: 'oldtown' },
+      { id: 'downtown-work', kind: 'mission', name: 'Downtown contact', x: -115, y: 0.24, z: -203.5, district: 'downtown' },
+      { id: 'hillcrest-work', kind: 'activity', name: 'Hillcrest lookout', x: 365, y: 0.24, z: 372.5, district: 'hillcrest' },
+      { id: 'port-work', kind: 'mission', name: 'Port contact', x: 365, y: 0.24, z: -299.5, district: 'port' }
+    ]
   };
   world.build = function (scene) {
     if (world.scene) return world;
     world.scene = scene;
-    const ground = new T.Mesh(SF.assets.plane, SF.assets.standard({ color: 0x9c8965, roughness: 1 }));
-    ground.scale.set(1450, 850, 1);
-    ground.rotation.x = -Math.PI / 2; ground.position.set(0, -0.12, 150); ground.receiveShadow = true; scene.add(ground);
-    const beach = new T.Mesh(SF.assets.plane, SF.assets.standard({ color: 0xdcb781, roughness: 1 }));
-    beach.scale.set(1100, 90, 1);
-    beach.rotation.x = -Math.PI / 2; beach.position.set(0, -0.07, -305); beach.receiveShadow = true; scene.add(beach);
-    const waterGeometry = new T.PlaneGeometry(2700, 1550, 100, 70); waterGeometry.rotateX(-Math.PI / 2);
-    const water = SF.city.water = new T.Mesh(waterGeometry, SF.assets.standard({ color: C.palette.sea, roughness: 0.32, metalness: 0.32 }));
-    water.position.set(0, -0.5, -1120); scene.add(water);
-    const positions = waterGeometry.attributes.position, original = new Float32Array(positions.array);
-    world.update = function (seconds) {
-      for (let i = 0; i < positions.count; i++) { const x = original[i * 3], z = original[i * 3 + 2]; positions.setY(i, Math.sin(x * 0.035 + seconds * 0.8) * 0.22 + Math.sin(z * 0.063 + seconds * 1.1) * 0.14); }
-      positions.needsUpdate = true;
-      // The small waves retain their near-up normals, avoiding a full normal rebuild each frame.
-    };
-    // Keep the sky in the renderer's clear/background path. A camera-centered
-    // shader dome can cover the full viewport and hide every world object.
-    scene.background = new T.Color(C.palette.horizon);
+    var ground = new T.Mesh(new T.PlaneGeometry(1240, 1160), new T.MeshStandardMaterial({ color: '#88775c', roughness: 1 }));
+    ground.name = 'City foundation'; ground.rotation.x = -Math.PI / 2; ground.position.set(20, -0.13, 0); ground.receiveShadow = true; scene.add(ground);
     SF.city.build(scene);
-    const rng = SF.random.seeded(C.seed + 2), bounds = SF.city.bounds, block = C.street.blockSize;
-    C.districts.forEach((district, i) => {
-      const col = i % 3, row = Math.floor(i / 3), minX = bounds.minX + col * block * 3, minZ = bounds.minZ + row * block * 3;
-      world.districtTriggers.push({ name: district.name, minX, maxX: minX + block * 3, minZ, maxZ: minZ + block * 3 });
-      const strips = SF.city.sidewalks.filter(strip => strip.district === district.name);
-      for (let p = 0; p < district.pedestrians; p++) {
-        const strip = rng.pick(strips), offset = rng.range(-strip.length / 2 + 4, strip.length / 2 - 4);
-        world.pedestrianSpawns.push({ x: strip.x + (strip.axis === 'x' ? offset : 0), y: 0.36, z: strip.z + (strip.axis === 'z' ? offset : 0), district: district.name, weight: district.density, heading: strip.axis === 'z' ? 0 : Math.PI / 2 });
-      }
-      // Spawn samples live on travel lanes, clear of the parked-car lane and junction mouths.
-      for (let p = 0; p < Math.round(24 * district.density); p++) {
-        const x = minX + rng.int(0, 2) * block + rng.range(19, block - 19), z = minZ + rng.int(0, 2) * block;
-        const side = rng.chance(0.5) ? 1 : -1;
-        world.trafficSpawns.push({ x, y: 0.15, z: z + side * 2.5, heading: side > 0 ? Math.PI / 2 : -Math.PI / 2, district: district.name, weight: district.density });
-      }
+    world.parkingSpots = SF.city.parkingSpots;
+    C.districts.forEach(function (d) {
+      world.districtTriggers.push({ id: d.id, name: d.name,
+        minX: S.originX + d.col[0] * S.blockSize, maxX: S.originX + d.col[1] * S.blockSize,
+        minZ: S.originZ + d.row[0] * S.blockSize, maxZ: S.originZ + d.row[1] * S.blockSize,
+        weight: d.density, pedestrianTarget: d.pedestrians });
+    });
+    SF.city.streets.forEach(function (street) {
+      var district = SF.city.districtAt(street.x, street.z);
+      if (!district) district = SF.city.districtAt(street.x - 1, street.z - 1);
+      if (!district) return;
+      [-1, 1].forEach(function (direction) {
+        var horizontal = street.axis === 'x', lane = S.laneWidth / 2;
+        world.trafficSpawns.push({ streetId: street.id, district: district.id, weight: district.density,
+          x: street.x + (horizontal ? 0 : -direction * lane), y: 0,
+          z: street.z + (horizontal ? direction * lane : 0),
+          heading: horizontal ? direction * Math.PI / 2 : (direction > 0 ? 0 : Math.PI), direction: direction });
+      });
+    });
+    SF.city.sidewalks.forEach(function (strip) {
+      var d = C.districts.find(function (district) { return district.id === strip.district; });
+      [-12, 12].forEach(function (offset) {
+        world.pedestrianSpawns.push({ x: strip.x + (strip.axis === 'x' ? offset : 0), y: strip.y,
+          z: strip.z + (strip.axis === 'z' ? offset : 0), district: strip.district,
+          weight: d.density, axis: strip.axis, length: strip.length });
+      });
     });
     return world;
   };
+  world.districtAt = function (x, z) { return SF.city.districtAt(x, z); };
+  // Runtime systems can use the same weighted tables without consuming the city RNG.
+  world.pickSpawn = function (kind, rng) {
+    var table = kind === 'traffic' ? world.trafficSpawns : world.pedestrianSpawns;
+    if (!table.length) return null;
+    rng = rng || SF.random;
+    var total = table.reduce(function (sum, item) { return sum + item.weight; }, 0), roll = rng.range(0, total);
+    for (var i = 0; i < table.length; i++) { roll -= table[i].weight; if (roll <= 0) return table[i]; }
+    return table[table.length - 1];
+  };
+  world.update = function (elapsed, dt) { SF.city.update(elapsed, dt); };
 }());

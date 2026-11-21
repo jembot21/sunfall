@@ -1,133 +1,110 @@
-/* Reproducible photo setups, using the same actors as ordinary play. */
 (function () {
   'use strict';
-  const SF = window.SF;
-  const setups = {
-    cover: { x: -294, z: -214, heading: 0, wanted: 4, car: 5, speed: 22 },
-    street: { x: -336, z: -157.5, heading: Math.PI / 2, wanted: 0 },
-    drive: { x: 0, z: -252, heading: Math.PI / 2, wanted: 0, car: 5, speed: 19 },
-    mission: { x: -304, z: -241, heading: Math.PI / 2, wanted: 0 }
-  };
-  let staged = null;
-
-  function place(actor, x, y, z, heading = 0) {
-    const mesh = actor.mesh || actor;
-    mesh.position.set(x, y, z); mesh.rotation.y = heading;
-    if (actor === SF.player) SF.player.position.set(x, y, z);
-    if ('heading' in actor) actor.heading = heading;
-    return actor;
-  }
-
-  function apply(name) {
-    const setup = setups[name];
-    if (!setup) throw new Error(`Unknown Sunfall shot: ${name}`);
-    if (!SF.player?.mesh || !SF.render?.scene || !SF.runtime) return false;
-    if (staged === name) return true;
-    if (SF.state.mode === 'menu') SF.runtime.start();
-    SF.state.mode = 'play'; SF.shots.current = name;
-    SF.missions.reset(); SF.phone.clear();
-    if (SF.player.vehicle) {
-      SF.player.vehicle.speed = 0;
-      SF.player.exitVehicle();
+  const SF=window.SF=window.SF||{};
+  let staged=null, clock=0;
+  let heroPaint=null,patrolPaint=null;
+  function paintBody(car,material){let body;car.mesh.traverse(o=>{if(!body&&o.material?.isMeshStandardMaterial)body=o.material;});car.mesh.traverse(o=>{if(o.material===body)o.material=material;});}
+  const names=['cover','street','drive','mission'];
+  function place(car,x,z,heading=0){car.mesh.position.set(x,.24,z);car.heading=heading;car.mesh.rotation.y=heading;car.speed=0;return car;}
+  function apply(name){
+    if(!names.includes(name))throw new Error('Unknown Sunfall staging: '+name);
+    staged=null;
+    if(SF.hud)SF.hud.clearOverlay();
+    if(SF.player.vehicle){SF.player.vehicle.speed=0;SF.player.exit();}
+    for(const u of SF.police.units){for(const m of [u.mesh,u.car?.mesh,u.officer?.mesh])if(m?.parent)m.parent.remove(m);}
+    SF.police.units.length=0;
+    SF.main.start(false);SF.phone.clear();SF.missions.reset();SF.police.init();SF.police.wanted=0;SF.player.health=100;
+    if(SF.player.vehicle)SF.player.exit();
+    SF.player.mesh.position.set(-516,.24,276.5);SF.input.yaw=-Math.PI/2;SF.input.pitch=0;
+    const camera=SF.render.camera, rig=SF.render.cameraRig;
+    rig.position.set(0,0,0);rig.rotation.set(0,0,0);
+    staged={name,camera:[-528,3.6,294],target:[-517,1.4,265],cars:[],units:[],peds:[],traffic:[]};clock=0;
+    if(name!=='drive'){
+      const positions=[[-510,275.3],[-503,277],[-495,275.4],[-502,300],[-492,300],[-484,300]];
+      SF.peds.people.filter(p=>p.health>0).slice(0,6).forEach((ped,i)=>staged.peds.push({ped,x:positions[i][0],z:positions[i][1]}));
     }
-    place(SF.player, setup.x, 0.55, setup.z, setup.heading);
-    SF.input.yaw = setup.heading; SF.input.pitch = -0.06;
-    SF.player.health = 100; SF.player.cash = 2480;
-    if (setup.car !== undefined) {
-      const type = SF.vehicles.types[setup.car];
-      const car = SF.vehicles.create(type);
-      place(car, setup.x, 0, setup.z, setup.heading);
-      SF.player.enterVehicle(car); car.speed = setup.speed;
-    }
-    SF.police.setWanted(setup.wanted);
-    SF.police.reconcile();
-    if (name === 'cover' || name === 'drive') {
-      for (let i = 0; i < (name === 'cover' ? 10 : 6); i++) {
-        const distance = i < 2 ? -28 - i * 17 : 24 + (i - 2) * 17;
-        SF.traffic.spawn({
-          x: setup.x + Math.sin(setup.heading) * distance + Math.cos(setup.heading) * (i % 2 ? 3 : -3),
-          z: setup.z + Math.cos(setup.heading) * distance - Math.sin(setup.heading) * (i % 2 ? 3 : -3),
-          heading: setup.heading
-        });
-      }
-    }
-    if (name === 'cover') {
-      SF.missions.setObjective('Lose the patrol · Get the ledger across the bay');
-    }
-    if (name === 'mission') {
-      SF.missions.startStory(0);
-      const first = SF.missions.story[0];
-      SF.phone.call(first.contact, first.stages[0].line);
-      const marco = SF.peds.create({ x: setup.x + 3, z: setup.z - 1,
-        shirt: 0x273849, pants: 0x29201e, idle: true, heading: -Math.PI / 2 });
-      marco.mesh.name = 'Marco Reyes'; marco.mesh.position.y = 0.36;
-    }
-    // Populate the actual sidewalk actors near the lens, rather than photo-only extras.
-    if (name === 'street' || name === 'mission' || name === 'cover') {
-      for (let i = 0; i < 12; i++) {
-        const ped = SF.peds.create({ x: setup.x + 5 + i * 3,
-          z: name === 'cover' ? -157.5 : setup.z + (i % 2 ? 0.6 : -0.6),
-          heading: Math.PI / 2, speed: 0.4, idle: i % 3 === 0 });
-        ped.mesh.position.y = 0.36;
-      }
-    }
-    if (name === 'street') {
-      // Reuse the parked fleet; the mid-block curb is not left to random fill.
-      SF.vehicles.parked.slice(0, 4).forEach((car, i) =>
-        place(car, setup.x - 3 + i * 9, 0, -161.6, Math.PI / 2));
-    }
-    const sun = SF.render.sun;
-    if (sun?.position) {
-      sun.target.position.set(setup.x, 0, setup.z);
-      sun.position.set(setup.x - 160, 100, setup.z - 220);
-    }
-    SF.state.district = SF.city.districtAt(setup.x, setup.z);
-    staged = name;
-    SF.hud.update();
-    return true;
-  }
-
-  // Main owns the only frame loop; staged camera transforms happen before its one render.
-  function updateCamera() {
-    if (!staged) return;
-    const player = SF.player, car = player.vehicle;
-    const p = (car?.mesh || player.mesh).position;
-    const camera = SF.render.camera;
-    if (!camera) return;
-    if (staged === 'cover') {
-      // Choreograph the real units each frame so pursuit AI cannot move the
-      // cast out of the shot while the coordinator waits for the HUD.
-      let ground = 0, block = 0;
-      for (const unit of SF.police.units) {
-        const actor = unit.car || unit.mesh;
-        if (!actor) continue;
-        if (unit.kind === 'air') place(actor, p.x + 4, 12, p.z + 28, Math.PI);
-        else if (unit.kind === 'roadblock') {
-          place(actor, p.x + (block++ ? 3 : -3), 0, p.z + 43, Math.PI / 2);
-        } else {
-          const i = ground++;
-          place(actor, p.x + (i % 2 ? 4.2 : -4.2), 0,
-            p.z + (i < 2 ? -1 + i * 3 : 18 + (i - 2) * 10), 0);
+    if(name==='cover'||name==='drive'){
+      const car=SF.vehicles.create({name:SF.vehicles.types[5],color:'#238c91'});
+      if(!heroPaint)heroPaint=new THREE.MeshStandardMaterial({color:'#238c91',roughness:.48,metalness:.25});
+      paintBody(car,heroPaint);
+      car.owned=true;car.locked=false;
+      place(car,-520,288,Math.PI/2);SF.player.mesh.position.copy(car.mesh.position);SF.player.enter(car);car.speed=18;
+      staged.cars.push({car,x:-520,z:288,heading:Math.PI/2,speed:18});
+      if(name==='cover'){
+        SF.peds.people[0].mesh.position.set(-515,0,276.5);
+        SF.police.crime('gunshot',SF.player.mesh.position);
+        for(let i=0;i<5&&SF.police.stars<4;i++)SF.police.crime('shoot',SF.player.mesh.position);
+        SF.police.update(.016,SF.state.elapsed);
+        const usedPatrols=new Set();
+        for(let i=0;i<2;i++){
+          const existing=SF.police.units.find(u=>u.car?.patrol&&!usedPatrols.has(u.car));
+          const patrol=existing?.car||SF.vehicles.create(SF.vehicles.types[1],{patrol:true});usedPatrols.add(patrol);
+          if(!patrolPaint)patrolPaint=new THREE.MeshStandardMaterial({color:'#e1e5de',roughness:.55,metalness:.15});paintBody(patrol,patrolPaint);
+          patrol.owned=true;
+          let unit=existing||SF.police.units.find(u=>u.car===patrol);
+          if(!unit){unit={callsign:'UNIT-'+(i?27:12),kind:'ground',status:'PURSUING',dist:0,car:patrol};SF.police.units.push(unit);}
+          unit.callsign='UNIT-'+(i?27:12);unit.status='PURSUING';
+          const x=-517,z=i?292.5:283.5;
+          place(patrol,x,z,Math.PI/2);
+          staged.units.push({u:unit,mesh:patrol.mesh,x,y:.24,z,fixed:true});
         }
-        const position = (actor.mesh || actor).position;
-        unit.dist = Math.round(Math.hypot(position.x - p.x, position.z - p.z) * 10) / 10;
-        if (unit.officer) unit.officer.position.set(position.x + 2.6, 0.36, position.z);
+        staged.camera=[-529,3.7,289.5];staged.target=[-493,2.6,287];
+        SF.missions.objective='Lose the patrol · Escape Palma Strand';
+        let ground=0,unitIndex=0;
+        for(const u of SF.police.units){if(staged.units.some(s=>s.u===u))continue;const mesh=u.mesh||u.car?.mesh||u.vehicle?.mesh;if(!mesh||staged.units.some(s=>s.mesh===mesh))continue;const isAir=/air|heli/i.test(u.kind)||/AIR ONE/i.test(u.callsign);const x=isAir?-486:-507+ground*7,z=isAir?287:ground++%2?283:294;mesh.position.set(x,isAir?12:.24,z);mesh.rotation.y=Math.PI/2;
+          if(isAir)mesh.traverse(o=>{if(o.geometry?.type==='ConeGeometry'&&o.material?.transparent){o.position.y=-(o.geometry.parameters?.height||20)/2-1;o.rotation.set(0,0,0);}});
+          u.callsign=isAir?'AIR ONE':u.kind==='roadblock'?'BLOCKADE-'+(++unitIndex):['UNIT-12','UNIT-27','UNIT-34','UNIT-41','UNIT-52','UNIT-63','UNIT-72'][unitIndex++%7];
+          staged.units.push({u,mesh,x,y:mesh.position.y,z});}
+        // Keep distant roadblocks live just like the two close patrols, even
+        // when the normal pursuit roster refreshes during the cover capture.
+        const blocks=SF.police.units.filter(u=>u.kind==='roadblock');
+        for(let i=0;i<2;i++){
+          const u=blocks[i]||{kind:'roadblock',car:SF.vehicles.create('Solano Sedan',{patrol:true,scene:SF.actors.scene()})};
+          u.callsign='BLOCKADE-'+(i+1);u.status='ROADBLOCK';
+          if(!SF.police.units.includes(u))SF.police.units.push(u);
+          staged.units=staged.units.filter(s=>s.u!==u);
+          const x=-477,z=i?292.5:283.5;
+          place(u.car,x,z,Math.PI/2);
+          staged.units.push({u,mesh:u.car.mesh,x,y:.24,z,fixed:true});
+        }
+      } else {
+        const x=-573,z=54;place(car,x,z,Math.PI);staged.cars[0]={car,x,z,heading:Math.PI,speed:22};
+        for(const t of SF.traffic.cars){const m=t.mesh||t.car?.mesh;if(m&&Math.hypot(m.position.x-x,m.position.z-z)<18)m.position.z+=40;}
+        const positions=[[-573,76],[-579,94],[-573,112],[-579,132],[-579,46],[-573,22]];
+        SF.traffic.cars.slice(0,6).forEach((t,i)=>{const mesh=t.mesh||t.car?.mesh;if(mesh)staged.traffic.push({mesh,x:positions[i][0],z:positions[i][1]});});
+        SF.player.mesh.position.set(x,.24,z);staged.camera=[-565,3.5,40];staged.target=[-584,2,78];
+        SF.missions.objective='Marina coast road · SOLANO FM';SF.state.district='Marina';
+        SF.render.sunSprite.position.set(-670,11,170);SF.render.sunSprite.scale.set(15,15,1);
       }
-      camera.position.set(p.x + 0.6, 3.6, p.z - 12);
-      camera.lookAt(p.x, 2.8, p.z + 18);
-      SF.hud.update();
-    } else if (staged === 'drive') {
-      const heading = car?.heading ?? player.heading, fx = Math.sin(heading), fz = Math.cos(heading);
-      camera.position.set(p.x - fx * 10, p.y + 3.4, p.z - fz * 10);
-      camera.lookAt(p.x + fx * 18, p.y + 1.8, p.z + fz * 18);
-    } else if (staged === 'street') {
-      camera.position.set(p.x - 5, 2.9, p.z + 1);
-      camera.lookAt(p.x + 9, 1.5, p.z - 9);
+    } else if(name==='mission'){
+      SF.missions.start(0);SF.player.mesh.position.set(-516,.24,276.5);
+      staged.camera=[-521,2.8,279];staged.target=[-497,1,276.5];
     } else {
-      camera.position.set(p.x - 1, 3, p.z + 7);
-      camera.lookAt(p.x + 5, 1.3, p.z - 9);
+      staged.camera=[-523,3.2,279];staged.target=[-503,1.5,276.5];SF.missions.objective='Palma Strand · Meet Marco Reyes';
     }
+    SF.render.sun.position.set(-700,90,260);SF.render.sun.intensity=1.5;SF.render.renderer.toneMappingExposure=.85;
+    update(0);return {name,wanted:SF.police.wanted,units:SF.police.units.length};
   }
-
-  SF.shots = { apply, current: null, updateCamera };
-})();
+  function update(dt){
+    if(!staged)return;clock+=Number(dt)||0;
+    for(const s of staged.cars){place(s.car,s.x,s.z,s.heading);s.car.speed=s.speed;SF.player.mesh.position.copy(s.car.mesh.position);}
+    for(const s of staged.peds)s.ped.mesh.position.set(s.x,0,s.z);
+    for(const s of staged.traffic){s.mesh.position.set(s.x,.24,s.z);s.mesh.rotation.y=Math.PI;}
+    for(const s of staged.units){if(s.fixed&&!SF.police.units.includes(s.u))SF.police.units.push(s.u);s.mesh.position.set(s.x,s.y,s.z);s.mesh.rotation.y=s.u.kind==='air'?-.5:Math.PI/2;s.u.dist=SF.player.mesh.position.distanceTo(s.mesh.position);}
+    if(staged.name==='cover')for(const u of SF.police.units){const p=(u.mesh||u.car?.mesh)?.position;if(p)u.dist=SF.player.mesh.position.distanceTo(p);}
+    if(staged.name==='cover')SF.missions.objective='Lose the patrol · Escape Palma Strand';
+    if(staged.name==='drive'){SF.state.district='Marina';SF.state.currentDistrict={name:'Marina'};SF.missions.objective='Marina coast road · SOLANO FM';}
+    if(staged.name==='street'){
+      SF.missions.objective='Palma Strand · Meet Marco Reyes';SF.player.mesh.rotation.y=-Math.PI/2;
+      const arms=SF.player.mesh.userData.arms;
+      (Array.isArray(arms)?arms:Object.values(arms)).forEach((arm,i)=>{(arm.mesh||arm).rotation.x=i%2?.55:-.65;});
+    }
+    if(staged.name==='mission'&&SF.phone.current){SF.phone.current.elapsed=0;SF.phone.current.startedAt=SF.phone.clock;}
+    SF.render.cameraRig.position.set(0,0,0);SF.render.cameraRig.rotation.set(0,0,0);
+    SF.render.camera.position.set(...staged.camera);SF.render.camera.lookAt(new THREE.Vector3(...staged.target));
+  }
+  SF.shots={apply,update,get current(){return staged?.name||null;},clear(){staged=null;}};
+  // Apply after boot; stage camera after the normal camera update each frame.
+  let hooked=false;
+  function frame(){if(SF.render?.ready&&SF.player?.mesh){if(!hooked){const renderer=SF.render.renderer,render=renderer.render.bind(renderer);renderer.render=function(scene,camera){update(0);if(staged)SF.hud.update(true);return render(scene,camera);};hooked=true;}const name=new URLSearchParams(location.search).get('shot');if(name&&!staged)apply(name);update(1/60);}requestAnimationFrame(frame);}requestAnimationFrame(frame);
+}());

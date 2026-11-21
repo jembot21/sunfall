@@ -1,95 +1,79 @@
-(() => {
-  const SF = globalThis.SF ||= {};
-  let ctx, bus, engine, siren, noise, nextBeat = 0, beat = 0, nextSurf = 0, stepAt = 0;
-  const melody = [48, 55, 60, 64, 45, 52, 57, 60, 41, 48, 53, 57, 43, 50, 55, 59];
-  const hz = midi => 440 * 2 ** ((midi - 69) / 12);
-  function loop(type, frequency) {
-    const osc = ctx.createOscillator(), gain = ctx.createGain();
-    osc.type = type;
-    osc.frequency.value = frequency;
-    gain.gain.value = 0;
-    osc.connect(gain).connect(bus);
-    osc.start();
-    return { osc, gain };
+(function () {
+  'use strict';
+  const SF = window.SF = window.SF || {};
+  let ctx, master, engine, engineGain, siren, sirenGain, noiseBuffer;
+  let time = 0, stepAt = 0, gullAt = 4, noteAt = 0, note = 0;
+  const melody = [48, 55, 60, 64, 55, 62, 59, 55, 45, 52, 57, 60, 52, 59, 55, 52];
+  function oscillator(freq, type, gain) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = freq; g.gain.value = gain;
+    o.connect(g); g.connect(master); o.start(); return [o, g];
   }
-  function tone(type, from, to, length, volume, delay = 0) {
-    if (ctx?.state !== 'running') return;
-    const time = ctx.currentTime + delay;
-    const osc = ctx.createOscillator(), gain = ctx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(from, time);
-    osc.frequency.exponentialRampToValueAtTime(to, time + length);
-    gain.gain.setValueAtTime(0.0001, time);
-    gain.gain.exponentialRampToValueAtTime(volume, time + Math.min(0.03, length / 4));
-    gain.gain.exponentialRampToValueAtTime(0.0001, time + length);
-    osc.connect(gain).connect(bus);
-    osc.start(time);
-    osc.stop(time + length);
+  function tone(freq, duration, volume = 0.08, type = 'sine', end = freq) {
+    if (!ctx || ctx.state !== 'running') return;
+    const [o, g] = oscillator(freq, type, 0.0001), now = ctx.currentTime;
+    o.frequency.exponentialRampToValueAtTime(Math.max(20, end), now + duration);
+    g.gain.exponentialRampToValueAtTime(volume, now + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    o.stop(now + duration + 0.02); o.onended = () => { o.disconnect(); g.disconnect(); };
   }
-  function wash(length, frequency, volume, filterType = 'lowpass') {
-    if (ctx?.state !== 'running') return;
-    const at = ctx.currentTime;
+  function noise(duration, volume, cutoff) {
+    if (!ctx || ctx.state !== 'running') return;
     const source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
-    source.buffer = noise;
-    filter.type = filterType;
-    filter.frequency.value = frequency;
-    gain.gain.setValueAtTime(0.0001, at);
-    gain.gain.exponentialRampToValueAtTime(volume, at + Math.min(length / 3, 0.025));
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
-    source.connect(filter).connect(gain).connect(bus);
-    source.start(at, 0, length);
+    source.buffer = noiseBuffer; filter.type = 'lowpass'; filter.frequency.value = cutoff;
+    gain.gain.setValueAtTime(volume, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+    source.connect(filter); filter.connect(gain); gain.connect(master);
+    source.start(); source.stop(ctx.currentTime + duration);
+    source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
   }
   SF.audio = {
-    station: 'SOLANO FM', radio: true,
+    enabled: true, radio: true,
     unlock() {
-      if (!ctx) {
-        const Audio = globalThis.AudioContext || globalThis.webkitAudioContext;
-        if (!Audio) return;
-        ctx = new Audio();
-        bus = ctx.createGain();
-        bus.gain.value = 0.48;
-        bus.connect(ctx.destination);
-        engine = loop('triangle', 44);
-        siren = loop('sine', 620);
-        noise = ctx.createBuffer(1, 2 * ctx.sampleRate, ctx.sampleRate);
-        const samples = noise.getChannelData(0);
-        for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
-      }
-      ctx.resume().catch(() => {});
+      if (!this.enabled) return;
+      try {
+        if (!ctx) {
+          const Audio = window.AudioContext || window.webkitAudioContext;
+          if (!Audio) return;
+          ctx = new Audio(); master = ctx.createGain(); master.gain.value = 0.52; master.connect(ctx.destination);
+          noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+          const data = noiseBuffer.getChannelData(0);
+          for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+          [engine, engineGain] = oscillator(42, 'triangle', 0);
+          [siren, sirenGain] = oscillator(620, 'sine', 0);
+        }
+        ctx.resume().catch(() => {});
+      } catch (_) { this.enabled = false; }
     },
-    footstep() {
-      if (!ctx || ctx.currentTime < stepAt) return;
-      stepAt = ctx.currentTime + 0.22;
-      wash(0.12, 630, 0.13);
-    },
-    gunshot() {
-      wash(0.21, 1500, 0.42, 'bandpass');
-      tone('triangle', 120, 45, 0.16, 0.28);
-    },
-    mission() {
-      [60, 64, 67, 72].forEach((note, offset) => tone('triangle', hz(note), hz(note), 0.4, 0.09, offset * 0.09));
-    },
-    update({ playing = false, driving = false, walking = false, speed = 0, wanted = 0 } = {}) {
-      if (ctx?.state !== 'running') return;
+    gunshot() { noise(0.19, 0.42, 3400); tone(130, 0.14, 0.24, 'triangle', 32); },
+    footstep() { noise(0.075, 0.065, 650); },
+    mission() { [261.63, 329.63, 392, 523.25].forEach((f, i) => tone(f, 0.55 + i * 0.12, 0.065)); },
+    sting() { this.mission(); },
+    shot() { this.gunshot(); },
+    update(dt) {
+      if (!ctx) return;
+      time += dt;
+      const playing = SF.state?.mode === 'play', vehicle = SF.player?.vehicle || SF.player?.inVehicle;
+      const speed = Math.abs(Number(vehicle?.speed ?? SF.player?.speed) || 0);
       const now = ctx.currentTime;
-      engine.osc.frequency.setTargetAtTime(40 + Math.min(Math.abs(speed), 75) * 2, now, 0.1);
-      engine.gain.gain.setTargetAtTime(playing && driving ? 0.12 : 0, now, 0.08);
-      siren.osc.frequency.setTargetAtTime(670 + 180 * Math.sin(now * 4), now, 0.04);
-      siren.gain.gain.setTargetAtTime(playing && wanted ? 0.035 : 0, now, 0.11);
+      master.gain.setTargetAtTime(this.enabled && playing ? 0.52 : 0, now, 0.08);
+      engineGain.gain.setTargetAtTime(vehicle ? 0.055 : 0, now, 0.1);
+      engine.frequency.setTargetAtTime(38 + Math.min(speed, 90) * 2.6, now, 0.12);
+      const wanted = Number(SF.police?.stars ?? SF.police?.wanted ?? 0);
+      sirenGain.gain.setTargetAtTime(wanted > 0 ? 0.025 : 0, now, 0.2);
+      siren.frequency.setTargetAtTime(700 + Math.sin(time * 5) * 210, now, 0.03);
       if (!playing) return;
-      if (walking && !driving) this.footstep();
-      if (now >= nextSurf) {
-        nextSurf = now + 7 + Math.random() * 5;
-        wash(1.8, 340, 0.06);
-        tone('sine', 1050, 670, 0.37, 0.025, 0.4);
-        tone('sine', 980, 590, 0.3, 0.02, 0.87);
+      if (!vehicle && (SF.input?.isDown('KeyW') || SF.input?.isDown('KeyS') || SF.input?.isDown('KeyA') || SF.input?.isDown('KeyD')) && time >= stepAt) {
+        this.footstep(); stepAt = time + (SF.input.isDown('ShiftLeft') ? 0.28 : 0.43);
       }
-      if (driving && this.radio && now >= nextBeat) {
-        nextBeat = now + 0.29;
-        const note = melody[beat++ % melody.length];
-        tone('triangle', hz(note), hz(note), 0.48, 0.055);
-        if (beat % 4 === 1) tone('sine', hz(note - 12), hz(note - 12), 0.95, 0.065);
+      if (SF.input?.pressed('KeyR') && vehicle) this.radio = !this.radio;
+      if (vehicle && this.radio && time >= noteAt) {
+        const f = 440 * Math.pow(2, (melody[note++ % melody.length] - 69) / 12);
+        tone(f, 0.7, 0.025, 'triangle'); tone(f * 2, 0.36, 0.012); noteAt = time + 0.32;
       }
+      if (time >= gullAt) { tone(1180, 0.65, 0.012, 'sine', 1720); noise(1.5, 0.027, 360); gullAt = time + 6 + Math.random() * 7; }
     }
   };
+  window.addEventListener('pointerdown', () => SF.audio.unlock());
+  window.addEventListener('keydown', () => SF.audio.unlock());
 })();

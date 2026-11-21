@@ -1,142 +1,51 @@
-(function (SF) {
+(function () {
   'use strict';
-  const T = globalThis.THREE;
-  const weapons = SF.weapons = {
-    slots: [{ id: 'fists', name: 'Fists', range: 2.25, damage: 22, cooldown: 0.42, unlocked: true }],
-    selected: 0, initialized: false, pointer: { x: 0, y: 0 }, cooldown: 0,
-    shots: 0, hit: null, muzzle: null
-  };
-  const guns = {
-    pistol: { name: 'Service Pistol', range: 90, damage: 34, cooldown: 0.32 },
-    smg: { name: 'Compact SMG', range: 75, damage: 18, cooldown: 0.095 },
-    shotgun: { name: 'Street Shotgun', range: 28, damage: 65, cooldown: 0.8 },
-    rifle: { name: 'Patrol Rifle', range: 130, damage: 48, cooldown: 0.48 }
-  };
-  function camera() {
-    const candidates = [SF.render?.camera, SF.render?.activeCamera, SF.render?.cameraRig?.camera,
-      SF.render?.cameraRig?.activeCamera, SF.render?.cameraRig];
-    return candidates.find(c => c?.isCamera) || null;
+  const SF=window.SF,T=window.THREE,A=SF.actors;
+  const slots=[{id:'fists',name:'Fists',unlocked:true,damage:18,range:2.5,cooldown:.42},{id:'pistol',name:'9mm Sidearm',unlocked:false,damage:34,range:85,cooldown:.2},{id:'carbine',name:'Bay Carbine',unlocked:false,damage:24,range:125,cooldown:.09}];
+  let equipped=0,lastShot=0,flash=null,initialized=false,ray;
+  function camera() {return SF.render && (SF.render.camera || SF.render.cameraRig && SF.render.cameraRig.camera);}
+  function muzzle() {
+    const cam=camera();if(!cam)return;
+    if(!flash && SF.render.makeFlare) {flash=SF.render.makeFlare(0xffb65d,1.5);SF.render.scene.add(flash);}
+    if(flash) {const p=cam.getWorldPosition(new T.Vector3()),d=new T.Vector3(0,0,-1).applyQuaternion(cam.quaternion);flash.position.copy(p.addScaledVector(d,.45));flash.visible=true;flash.scale.setScalar(1.1);flash.userData.ttl=.055;}
   }
-  function canvas() { return SF.render?.renderer?.domElement || document.querySelector('canvas'); }
-  function allTargets() {
-    const objects = [];
-    for (const ped of SF.peds?.all || []) if (ped.mesh.visible) objects.push(ped.mesh);
-    for (const car of SF.vehicles?.all || []) if (!car.dead) objects.push(car.mesh);
-    return objects;
+  function resolve(object) {
+    let node=object;
+    while(node) {
+      if(node.userData && node.userData.car)return {kind:'car',target:node.userData.car};
+      const ped=SF.peds && SF.peds.people.find(p=>p.mesh===node);if(ped)return {kind:'ped',target:ped};
+      if(node.parent && node.parent.userData && node.parent.userData.car)return {kind:'car',target:node.parent.userData.car};
+      node=node.parent;
+    }
+    return null;
   }
-  function applyHit(obj, weapon) {
-    let node = obj;
-    while (node && !node.userData?.pedestrian && !node.userData?.vehicle) node = node.parent;
-    if (!node) return false;
-    const ped = node.userData.pedestrian;
-    if (ped) {
-      ped.health = (ped.health ?? 100) - weapon.damage;
-      ped.state = 'HIT'; ped.idle = false;
-      const away = ped.mesh.position.clone().sub(SF.player.position);
-      if (away.lengthSq() > 0) ped.heading = Math.atan2(away.x, away.z);
-      ped.flee = Math.max(ped.flee || 0, 3.5);
-      ped.mesh.userData.hitFlash = 0.18;
-      if (ped.health <= 0) {
-        ped.state = 'DOWN'; ped.mesh.rotation.z = -Math.PI / 2;
-        ped.mesh.position.y = -0.38; ped.downUntil = Date.now() + 12000;
-      }
-      SF.player.lastViolenceAt = Date.now();
-      SF.peds.reactToCrime?.(ped.mesh.position, 25);
-      return 'pedestrian';
-    }
-    const car = node.userData.vehicle;
-    if (car) {
-      car.health = (car.health ?? 200) - weapon.damage;
-      car.hitAt = Date.now(); car.speed *= 0.72;
-      car.mesh.userData.hitFlash = 0.18;
-      if (car.health <= 0) { car.dead = true; car.speed = 0; car.destroyedAt = Date.now(); }
-      return 'vehicle';
-    }
-    return false;
+  function firingVisible() {
+    const player=SF.player;if(player.vehicle)return true;
+    return (SF.police && SF.police.units || []).some(u=>u.kind==='ground' && u.car && u.car.mesh.position.distanceTo(player.position)<130);
   }
-  function muzzleFlash() {
-    if (!camera() || !SF.render?.scene) return;
-    if (!weapons.muzzle) {
-      weapons.muzzle = SF.render.makeFlare?.(0xffbf59, 0.8);
-      if (weapons.muzzle) { weapons.muzzle.visible = false; camera().add(weapons.muzzle); }
-    }
-    const flash = weapons.muzzle;
-    if (flash) {
-      flash.position.set(0.28, -0.23, -0.85); flash.visible = true;
-      flash.material.opacity = 1;
-      clearTimeout(weapons.flashTimer);
-      weapons.flashTimer = setTimeout(() => { if (flash) flash.visible = false; }, 75);
-    }
-  }
-  weapons.unlock = function (id) {
-    const spec = guns[id]; if (!spec) return null;
-    let slot = weapons.slots.find(s => s.id === id);
-    if (!slot) { slot = { id, ...spec, unlocked: true, ammo: Infinity }; weapons.slots.push(slot); }
-    else slot.unlocked = true;
-    return slot;
-  };
-  weapons.select = function (idOrIndex) {
-    const i = typeof idOrIndex === 'number' ? idOrIndex : weapons.slots.findIndex(s => s.id === idOrIndex);
-    if (i < 0 || i >= weapons.slots.length || !weapons.slots[i].unlocked) return false;
-    weapons.selected = i; return weapons.slots[i];
-  };
-  weapons.current = () => weapons.slots[weapons.selected] || weapons.slots[0];
-  weapons.fire = function () {
-    const player = SF.player, cam = camera(), weapon = weapons.current();
-    if (!player?.mesh || !cam || !weapon || weapons.cooldown > 0 || player.dead) return false;
-    weapons.cooldown = weapon.cooldown; weapons.shots++;
-    const isGun = weapon.id !== 'fists';
-    if (isGun) muzzleFlash();
-    const ray = new T.Raycaster();
-    ray.setFromCamera(new T.Vector2(weapons.pointer.x, weapons.pointer.y), cam);
-    ray.far = weapon.range;
-    const hits = ray.intersectObjects(allTargets(), true);
-    let result = null;
-    if (hits.length) {
-      result = applyHit(hits[0].object, weapon);
-      if (result) weapons.hit = { target: result, at: Date.now(), distance: hits[0].distance };
-    }
-    const police = SF.police;
-    if (isGun && police?.nearestCanSee?.(player.position, 110)) police.crime('GUNFIRE', 1, player.position);
-    else if (isGun && police?.wanted > 0 && police.units?.some(u => u.kind === 'ground' && u.dist < 80)) police.crime('GUNFIRE', 1, player.position);
-    else if (!isGun && result && police?.nearestCanSee?.(player.position, 60)) police.crime('ASSAULT', 1, player.position);
-    return result || true;
-  };
-  weapons.init = function () {
-    if (weapons.initialized || typeof window === 'undefined' || !T) return weapons;
-    weapons.initialized = true;
-    const el = canvas();
-    if (el) {
-      el.addEventListener('pointermove', e => {
-        const r = el.getBoundingClientRect();
-        weapons.pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-        weapons.pointer.y = -(((e.clientY - r.top) / r.height) * 2 - 1);
+  function shoot() {
+    const now=performance.now()/1000,slot=slots[equipped];if(now-lastShot<slot.cooldown || !SF.player.mesh || SF.player.vehicle)return false;lastShot=now;
+    const cam=camera();if(!cam)return false;
+    muzzle();if(SF.weapons.onShot)SF.weapons.onShot(slot.id);
+    if(slot.id==='fists') {
+      const p=SF.player.position,forward=new T.Vector3(0,0,-1).applyQuaternion(cam.quaternion),target=(SF.peds && SF.peds.people || []).filter(x=>x.health>0 && x.mesh.position.distanceTo(p)<slot.range).sort((a,b)=>a.mesh.position.distanceTo(p)-b.mesh.position.distanceTo(p)).find(x=>{
+        const d=x.mesh.position.clone().sub(cam.getWorldPosition(new T.Vector3()));return d.normalize().dot(forward)>.72;
       });
-      el.addEventListener('pointerdown', e => { if (e.button === 0) weapons.fire(); });
+      if(target){SF.peds.hit(target,slot.damage,forward);SF.police.crime('assault',target.mesh.position,.4);}return !!target;
     }
-    window.addEventListener('keydown', e => {
-      if (e.code.startsWith('Digit')) weapons.select(Number(e.code.slice(5)) - 1);
-      if (e.code === 'KeyQ' && !e.repeat) weapons.select((weapons.selected + 1) % weapons.slots.length);
-    });
-    return weapons;
+    cam.updateMatrixWorld(true);const origin=cam.getWorldPosition(new T.Vector3()),direction=new T.Vector3(0,0,-1).applyQuaternion(cam.quaternion).normalize();
+    ray=ray || new T.Raycaster();ray.set(origin,direction);ray.far=slot.range;
+    const hits=ray.intersectObjects(SF.render.scene.children,true);
+    for(const hit of hits) {
+      const result=resolve(hit.object);if(!result)continue;
+      if(result.kind==='ped') SF.peds.hit(result.target,slot.damage,direction);else SF.vehicles.damage(result.target,slot.damage);
+      if(firingVisible())SF.police.crime('shots fired',SF.player.position,.55);return true;
+    }
+      SF.police.crime('shots fired',SF.player.position,.35);return false;
+  }
+  SF.weapons={slots,get current(){return slots[equipped];},equip(id){const i=slots.findIndex((s,index)=>s.id===id || String(index+1)===String(id));if(i<0 || !slots[i].unlocked)return false;equipped=i;return true;},unlock(id){const slot=slots.find(s=>s.id===id);if(!slot)return false;slot.unlocked=true;return true;},shoot,onShot:null,
+    init() {if(initialized)return this;initialized=true;window.addEventListener('mousedown',e=>{if(e.button===0 && !e.target.closest('button,input,[data-ui]'))shoot();});window.addEventListener('keydown',e=>{if(e.code==='Digit1')this.equip('fists');if(e.code==='Digit2')this.equip('pistol');if(e.code==='Digit3')this.equip('carbine');});return this;},
+    update(dt) {if(flash && flash.userData.ttl>0){flash.userData.ttl-=dt;if(flash.userData.ttl<=0)flash.visible=false;}}
   };
-  weapons.update = function (dt) {
-    weapons.init(); weapons.cooldown = Math.max(0, weapons.cooldown - Math.max(0, dt || 0));
-    for (const ped of SF.peds?.all || []) {
-      if (ped.mesh.userData.hitFlash > 0) {
-        ped.mesh.userData.hitFlash -= dt;
-        if (ped.mesh.userData.hitFlash <= 0 && ped.mesh.material?.emissive) ped.mesh.material.emissive.setHex(0);
-      }
-      if (ped.state === 'DOWN' && Date.now() > ped.downUntil) {
-        ped.mesh.visible = false; ped.respawnAt ||= Date.now() + 3000;
-      }
-      if (!ped.mesh.visible && ped.respawnAt && Date.now() > ped.respawnAt) {
-        ped.mesh.visible = true; ped.mesh.rotation.z = 0; ped.mesh.position.y = 0;
-        ped.health = 100; ped.state = 'WALKING'; ped.respawnAt = 0;
-      }
-    }
-    for (const car of SF.vehicles?.all || []) {
-      if (car.dead && car.destroyedAt && Date.now() - car.destroyedAt > 12000) SF.vehicles.remove(car);
-    }
-  };
-})(globalThis.SF = globalThis.SF || {});
+  SF.weapons.init();
+})();

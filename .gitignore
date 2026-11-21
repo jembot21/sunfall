@@ -1,2 +1,5 @@
+# Belongs to the Sunfall build.
 output/
 node_modules/
+screenshots-raw/
+.DS_Store

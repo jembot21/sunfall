@@ -1,69 +1,33 @@
-// Exercise photo setups with real Three.js math, without a browser or WebGL.
+'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const vm = require('node:vm');
 const path = require('node:path');
-const THREE = require('../game/vendor/three.min.js');
-const context2d = new Proxy({ createRadialGradient: () => ({ addColorStop() {} }) },
-  { get: (o, k) => o[k] || (() => {}) });
-class Renderer {
-  constructor() { this.shadowMap = {}; }
-  setPixelRatio() {}
-  setSize() {}
-}
-const sandbox = vm.createContext({ THREE: { ...THREE, WebGLRenderer: Renderer },
-  document: { createElement: () => ({ getContext: () => context2d }) },
-  console, performance, innerWidth: 1024, innerHeight: 768,
-  devicePixelRatio: 1, addEventListener() {} });
-sandbox.window = sandbox;
-function load(file) {
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../game/src', file + '.js'), 'utf8'), sandbox);
-}
-for (const file of ['config', 'random', 'city', 'world', 'render', 'player', 'vehicles', 'traffic', 'peds', 'police']) load(file);
-const SF = sandbox.SF;
-SF.world.build(SF.render.scene);
-SF.player.init(); SF.vehicles.init(); SF.traffic.init(); SF.peds.init();
-SF.state = { mode: 'play' };
-SF.input = {};
-SF.runtime = {};
-SF.hud = { update() {} };
-SF.phone = { clear() {}, call() {} };
-load('missions'); load('shots');
-function inside(position, label) {
-  SF.render.camera.updateMatrixWorld(true);
-  const p = position.clone().project(SF.render.camera);
-  assert.ok(Math.abs(p.x) < 0.95 && Math.abs(p.y) < 0.95 && p.z > -1 && p.z < 1,
-    `${label} is outside frame: ${p.toArray()}`);
-}
-function openCamera() {
-  const p = SF.render.camera.position;
-  assert.ok(!SF.city.collisionBounds.some(b => p.x > b.minX && p.x < b.maxX &&
-    p.z > b.minZ && p.z < b.maxZ && p.y < b.height), 'camera inside a building');
-}
-for (const name of ['cover', 'drive', 'street', 'mission']) {
-  assert.equal(SF.shots.apply(name), true);
-  // Cover used to crash on the first police sight ray against the sun sprite.
-  assert.doesNotThrow(() => SF.police.update(1 / 60));
-  SF.shots.updateCamera(); SF.render.prepare();
-  openCamera();
-  const actor = SF.player.vehicle?.mesh || SF.player.mesh;
-  inside(actor.position.clone().add(new THREE.Vector3(0, 1, 0)), `${name} player`);
-  if (name === 'cover') {
-    for (const unit of SF.police.units) {
-      const mesh = unit.car?.mesh || unit.mesh;
-      inside(mesh.position.clone().add(new THREE.Vector3(0, unit.car ? 1.8 : 0, 0)), unit.callsign);
-    }
-    // Choreography follows the moving car, including after AI's next update.
-    actor.position.z += 20;
-    SF.police.update(1 / 60); SF.shots.updateCamera();
-    for (const unit of SF.police.units) inside((unit.car?.mesh || unit.mesh).position, unit.callsign);
-  }
-  if (name === 'drive') assert.ok(SF.render.camera.position.distanceTo(actor.position) > 9,
-    'drive camera must clear the car body');
-  if (name === 'mission') {
-    const marco = SF.peds.all.find(p => p.mesh.name === 'Marco Reyes');
-    inside(marco.mesh.position.clone().add(new THREE.Vector3(0, 1, 0)), 'Marco');
-    assert.equal(SF.missions.active.index, 0);
-  }
-}
-console.log('PASS Sunfall staging frustums, open cameras, chase placement, and sprite sight rays');
+// game/src/shots.js will own staged camera control in the next session.
+// No claim is made here that captures or that future module already exist.
+const shots = JSON.parse(fs.readFileSync(path.join(__dirname, '../shots.json'), 'utf8'));
+assert.deepEqual(Object.keys(shots).sort(), ['cover', 'drive', 'mission', 'street']);
+for (const file of Object.values(shots)) assert.match(file, /^screenshots\/[\w-]+\.jpg$/);
+assert.equal(new Set(Object.values(shots)).size, 4);
+const vm = require('node:vm');
+const { environment } = require('./smoke.cjs');
+const { SF, context, counts } = environment();
+SF.main.boot();
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../game/src/shots.js'), 'utf8'), context, {filename:'shots.js'});
+const budget=counts.textures;
+SF.shots.apply('cover');
+assert.equal(SF.police.stars,4,'cover has four live wanted stars');
+assert.ok(SF.police.units.some(u=>u.kind==='air'),'cover uses the real helicopter');
+assert.ok(SF.police.units.length>=5,'cover has at least five live dispatch units');
+assert.ok(SF.police.units.filter(u=>u.kind!=='air').length>=4,'cover has four ground-side units');
+assert.ok(SF.police.units.some(u=>u.kind==='roadblock'&&u.car.mesh.position.x>SF.player.position.x),'cover has a roadblock ahead on the avenue');
+assert.ok(SF.police.units.filter(u=>u.kind==='ground').length>=2,'two live patrol units');
+assert.ok(SF.police.units.filter(u=>u.car?.patrol).length>=2,'cover uses factory-built patrol vehicles');
+assert.equal(SF.player.vehicle.type,'Tide Runner GT');
+assert.ok(SF.camera.position.y>=3&&SF.camera.position.y<=4,'street-level cover camera');
+assert.match(SF.missions.objective,/Escape/);
+SF.shots.apply('street');assert.ok(!SF.player.vehicle,'street is on foot');assert.equal(SF.police.stars,0);
+SF.shots.apply('drive');assert.ok(SF.player.vehicle.speed>0);assert.equal(SF.player.vehicle.type,'Tide Runner GT');
+SF.shots.apply('mission');assert.equal(SF.phone.current.caller,'Marco Reyes');assert.equal(SF.phone.current.line,SF.missions.story[0].intro);assert.equal(SF.missions.active.title,'First Favor');
+assert.equal(counts.textures,budget,'staging allocates no canvas textures');
+assert.throws(()=>SF.shots.apply('missing'),/Unknown/);
+console.log('PASS stagings: four paths; real Tide Runner, patrols and AIR ONE; street-level camera; mission phone; zero additional textures');

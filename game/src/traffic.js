@@ -1,107 +1,56 @@
-(function (SF) {
+(function () {
   'use strict';
-  const T = globalThis.THREE;
-  const traffic = SF.traffic = { cars: [], initialized: false, target: 30, spawnClock: 0 };
-  const random = () => SF.player?.helpers?.random?.() ?? Math.random();
-  const pick = a => a[Math.floor(random() * a.length)];
-  function densityCount() {
-    const d = SF.CONFIG?.density || {};
-    const n = Number(d.trafficCars ?? d.traffic ?? d.trafficCount ?? d.vehicles);
-    return Math.max(20, Math.min(56, n || 32));
+  const SF=window.SF, T=window.THREE, moving=[];
+  let grid,initialized=false;
+  function route(car,nearPlayer=false) {
+    const A=SF.actors,p=SF.player.position,axis=A.rand()<.5?'x':'z',direction=A.rand()<.5?-1:1;
+    const fixed=A.pick(axis==='x'?grid.zs:grid.xs),range=axis==='x'?grid.xs:grid.zs;
+    const coordinate=nearPlayer ? A.clamp((axis==='x'?p.x:p.z)+(A.rand()<.5?-1:1)*(85+A.rand()*130),range[0],range[range.length-1]) : A.pick(range);
+    car.mesh.position.set(axis==='x'?coordinate:fixed+direction*2.4,0,axis==='x'?fixed-direction*2.4:coordinate);
+    car.mesh.rotation.y=axis==='x'?direction*Math.PI/2:direction===1?0:Math.PI;
+    car.route={axis,direction,fixed,cruise:7+A.rand()*8,lastCross:null}; car.speed=car.route.cruise*.6; car.traffic=true;car.mesh.visible=true;
   }
-  function nearest(a, value) { return a.reduce((best, x) => Math.abs(x - value) < Math.abs(best - value) ? x : best, a[0]); }
-  function spawnPosition(playerPosition, radius = 58) {
-    const streets = SF.player.helpers.streets(), bounds = SF.player.helpers.bounds();
-    if (!streets.x.length || !streets.z.length) return { x: playerPosition.x + 0, y: 0, z: playerPosition.z + radius };
-    const vertical = random() < 0.5;
-    if (vertical) {
-      const x = nearest(streets.x, playerPosition.x + (random() - 0.5) * radius * 1.5) + pick([-1.6, 1.6]);
-      const z = Math.max(bounds.minZ + 8, Math.min(bounds.maxZ - 8, playerPosition.z + pick([-1, 1]) * radius));
-      return { x, y: 0, z, heading: pick([0, Math.PI]) };
-    }
-    const z = nearest(streets.z, playerPosition.z + (random() - 0.5) * radius * 1.5) + pick([-1.6, 1.6]);
-    const x = Math.max(bounds.minX + 8, Math.min(bounds.maxX - 8, playerPosition.x + pick([-1, 1]) * radius));
-    return { x, y: 0, z, heading: pick([Math.PI / 2, -Math.PI / 2]) };
-  }
-  traffic.spawn = function (position, options = {}) {
-    if (!SF.vehicles || !T) return null;
-    const type = pick(SF.vehicles.types);
-    const palette = Object.values(SF.CONFIG?.palette || {}).filter(v => typeof v === 'number' || typeof v === 'string');
-    const car = SF.vehicles.create(type, { ...position, position, traffic: true,
-      color: options.color ?? pick(palette.length ? palette : [0x728b98, 0x9d583d, 0xdbc58c, 0x344f65, 0x414744]),
-      driver: 'traffic' });
-    if (!car) return null;
-    car.speed = 7 + random() * 7; car.cruiseSpeed = car.speed; car.turnTimer = random() * 2;
-    car.mesh.userData.trafficCar = car; traffic.cars.push(car); return car;
-  };
-  traffic.init = function () {
-    if (traffic.initialized || !SF.player?.mesh) return traffic;
-    traffic.initialized = true; traffic.target = densityCount();
-    const playerPos = SF.player.position;
-    for (let i = 0; i < traffic.target; i++) {
-      const p = spawnPosition(playerPos, 38 + (i % 5) * 17);
-      traffic.spawn(p);
-    }
-    return traffic;
-  };
-  function closeAhead(car) {
-    const player = SF.player, p = player?.position;
-    if (!p) return 1;
-    const dx = p.x - car.mesh.position.x, dz = p.z - car.mesh.position.z;
-    const forwardX = Math.sin(car.heading), forwardZ = Math.cos(car.heading);
-    const ahead = dx * forwardX + dz * forwardZ;
-    const side = Math.abs(dx * forwardZ - dz * forwardX);
-    return ahead > 0 && ahead < 18 && side < 3.2 ? 0.24 : 1;
-  }
-  function crossingSlow(car) {
-    const s = SF.player.helpers.streets();
-    const x = s.x.length ? nearest(s.x, car.mesh.position.x) : Infinity;
-    const z = s.z.length ? nearest(s.z, car.mesh.position.z) : Infinity;
-    const onX = Math.abs(x - car.mesh.position.x) < 4;
-    const onZ = Math.abs(z - car.mesh.position.z) < 4;
-    return onX && onZ ? 0.74 : 1;
-  }
-  function maybeTurn(car, dt) {
-    car.turnTimer -= dt;
-    if (car.turnTimer > 0) return;
-    car.turnTimer = 1.2 + random() * 2.8;
-    const streets = SF.player.helpers.streets();
-    const nearX = streets.x.some(x => Math.abs(car.mesh.position.x - x) < 2.3);
-    const nearZ = streets.z.some(z => Math.abs(car.mesh.position.z - z) < 2.3);
-    if (!nearX || !nearZ || random() > 0.42) return;
-    const dir = car.heading;
-    const choices = Math.abs(Math.cos(dir)) > 0.7 ? [Math.PI / 2, -Math.PI / 2] : [0, Math.PI];
-    car.heading += pick(choices);
-    car.mesh.rotation.y = car.heading;
-  }
-  traffic.update = function (dt) {
-    if (!SF.player?.mesh || !SF.vehicles) return;
-    traffic.init(); dt = Math.min(0.06, Math.max(0, dt || 0));
-    const p = SF.player.position;
-    for (const car of traffic.cars) {
-      if (car.dead || car.driver === SF.player) continue;
-      maybeTurn(car, dt);
-      const target = car.cruiseSpeed * Math.min(closeAhead(car), crossingSlow(car));
-      car.speed += (target - car.speed) * Math.min(1, dt * 1.4);
-      car.mesh.position.x += Math.sin(car.heading) * car.speed * dt;
-      car.mesh.position.z += Math.cos(car.heading) * car.speed * dt;
-      car.mesh.rotation.y = car.heading;
-      car.wheels.forEach(w => { w.tire.rotation.x += car.speed * dt / 0.37; });
-      const d = Math.hypot(car.mesh.position.x - p.x, car.mesh.position.z - p.z);
-      if (d > 155 || car.mesh.position.x < SF.player.helpers.bounds().minX + 3 ||
-          car.mesh.position.x > SF.player.helpers.bounds().maxX - 3 ||
-          car.mesh.position.z < SF.player.helpers.bounds().minZ + 3 ||
-          car.mesh.position.z > SF.player.helpers.bounds().maxZ - 3) {
-        SF.vehicles.remove(car); car.dead = true;
+  SF.traffic={
+    cars:moving,
+    init(scene=SF.actors.scene()) {
+      if(initialized || !scene || !SF.vehicles) return this;
+      initialized=true;grid=SF.actors.grid();
+      const config=SF.CONFIG || {},density=config.density || config.DENSITY || {};
+      const count=SF.actors.clamp(Number(density.trafficCount || config.TRAFFIC_COUNT)||56,32,96);
+      for(let i=0;i<count;i++) {const car=SF.vehicles.create(SF.actors.pick(SF.vehicles.types),{scene});route(car,i<Math.floor(count*.65));moving.push(car);}
+      return this;
+    },
+    update(dt) {
+      if(!initialized) this.init(); if(!initialized || !SF.player.mesh) return;
+      const A=SF.actors,p=SF.player.position;dt=A.clamp(dt,0,.05);
+      for(const car of moving) {
+        if(!car.traffic || car.driver) continue;
+        const r=car.route,pos=car.mesh.position,dist=pos.distanceTo(p),coords=r.axis==='x'?grid.xs:grid.zs,c=pos[r.axis];
+        const next=coords.filter(v=>(v-c)*r.direction>0).sort((a,b)=>Math.abs(a-c)-Math.abs(b-c))[0];
+        let desired=r.cruise;
+        if(Number.isFinite(next) && Math.abs(next-c)<13) desired*=.55;
+        const forward=new T.Vector3(Math.sin(car.mesh.rotation.y),0,Math.cos(car.mesh.rotation.y));
+        const relative=new T.Vector3().subVectors(p,pos),ahead=relative.dot(forward),lateral=Math.abs(relative.x*forward.z-relative.z*forward.x);
+        if(ahead>0 && ahead<20 && lateral<4) desired*=A.clamp((ahead-4)/16,0,1);
+        for(const other of moving) {if(other===car || !other.traffic) continue; const dx=other.mesh.position.x-pos.x,dz=other.mesh.position.z-pos.z,a=dx*forward.x+dz*forward.z,l=Math.abs(dx*forward.z-dz*forward.x);if(a>0 && a<12 && l<2.5) desired=Math.min(desired,Math.max(0,(a-5)*.9));}
+        car.speed+=(desired-car.speed)*Math.min(1,dt*2.5);
+        const old=pos[r.axis];
+        pos.x+=Math.sin(car.mesh.rotation.y)*car.speed*dt;pos.z+=Math.cos(car.mesh.rotation.y)*car.speed*dt;
+        car.wheels.forEach(w=>w.rotation.x+=car.speed*dt/.34);
+        car.lamps.forEach(l=>l.material=desired<2?car.brakeMaterial:car.baseTail);
+        if(Number.isFinite(next) && (next-old)*r.direction>=0 && (next-pos[r.axis])*r.direction<=0 && r.lastCross!==next) {
+          r.lastCross=next;
+          if(A.rand()<.3) {
+            const oldAxis=r.axis,oldFixed=r.fixed;r.axis=oldAxis==='x'?'z':'x';r.fixed=next;r.direction=A.rand()<.5?-1:1;
+            pos[r.axis]=oldFixed;pos[oldAxis]=next+r.direction*(oldAxis==='x'?2.4:-2.4);
+            car.mesh.rotation.y=r.axis==='x'?r.direction*Math.PI/2:r.direction===1?0:Math.PI;r.lastCross=oldFixed;
+          }
+        }
+        if(dist>300 || !Number.isFinite(next)) {
+          // Keep distant recycling outside the camera's immediate neighbourhood.
+          if(dist>90) route(car,true); else {r.direction*=-1;car.mesh.rotation.y+=Math.PI;}
+        }
       }
     }
-    traffic.cars = traffic.cars.filter(c => !c.dead);
-    traffic.spawnClock -= dt;
-    if (traffic.cars.length < traffic.target && traffic.spawnClock <= 0) {
-      traffic.spawnClock = 0.24;
-      const p0 = spawnPosition(p, 48 + random() * 44);
-      // Keep respawns outside the immediate play bubble and away from occupied bumpers.
-      if (traffic.cars.every(c => c.mesh.position.distanceTo(new T.Vector3(p0.x, 0, p0.z)) > 8)) traffic.spawn(p0);
-    }
   };
-})(globalThis.SF = globalThis.SF || {});
+})();

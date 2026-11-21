@@ -1,23 +1,20 @@
-(() => {
-  const SF = globalThis.SF ||= {};
-  const queue = [];
-  const clock = () => performance.now();
+(function () {
+  'use strict';
+  const SF = window.SF = window.SF || {};
   SF.phone = {
-    current: null,
+    queue: [], current: null, clock: 0, duration: 6,
     call(caller, line) {
-      if (queue.length >= 16) return false;
-      queue.push({ caller, line });
-      this.update();
-      return true;
+      this.queue.push({ caller: String(caller), line: String(line) });
+      this.next();
     },
-    update() {
-      const now = clock();
-      if (this.current && now - this.current.startedAt >= 6000) this.current = null;
-      if (!this.current && queue.length) this.current = { ...queue.shift(), startedAt: now };
+    next() {
+      if (!this.current && this.queue.length) this.current = { ...this.queue.shift(), startedAt: this.clock };
     },
-    clear() {
-      queue.length = 0;
-      this.current = null;
-    }
+    update(dt) {
+      this.clock += Math.max(0, dt);
+      if (this.current && this.clock - this.current.startedAt >= this.duration) this.current = null;
+      this.next();
+    },
+    clear() { this.queue.length = 0; this.current = null; this.clock = 0; }
   };
 })();

@@ -1,244 +1,140 @@
-(function (SF) {
+(function () {
   'use strict';
-  const T = globalThis.THREE;
-  const vehicles = SF.vehicles = { all: [], parked: [], traffic: [], patrols: [], types: [], initialized: false };
-  const fallbackTypes = [
-    { name: 'Vireo Coupe', speed: 49, handling: 1.18, size: [1.82, 1.22, 4.15] },
-    { name: 'Meridian Sedan', speed: 42, handling: 0.96, size: [1.92, 1.48, 4.7] },
-    { name: 'Solano Cab', speed: 38, handling: 0.89, size: [1.95, 1.56, 4.8] },
-    { name: 'Hauler Pickup', speed: 35, handling: 0.78, size: [2.12, 1.85, 5.1] },
-    { name: 'Cargo Van', speed: 32, handling: 0.67, size: [2.08, 2.12, 5.35] },
-    { name: 'Tide Runner GT', speed: 57, handling: 1.3, size: [1.95, 1.2, 4.35] }
+  const SF=window.SF, T=window.THREE;
+  const specifications = [
+    ['Vireo Coupe',24,9,2.1,3.9],['Meridian Sedan',22,7,1.8,4.5],['Solano Cab',21,7,1.7,4.5],
+    ['Hauler Pickup',20,6,1.5,4.9],['Cargo Van',17,5,1.25,5.2],['Tide Runner GT',34,12,2.5,4.2]
   ];
-  const palette = () => SF.CONFIG?.palette || {};
-  const colors = () => Object.values(palette()).filter(v => typeof v === 'number' || typeof v === 'string');
-  const random = () => SF.player?.helpers?.random?.() ?? Math.random();
-  const pick = a => a[Math.floor(random() * a.length)];
-  const scene = () => SF.render?.scene;
-  const vec = p => p?.isVector3 ? p.clone() : new T.Vector3(p?.x ?? 0, p?.y ?? 0, p?.z ?? 0);
-  function typeList() {
-    const raw = SF.CONFIG?.VEHICLE_TYPES;
-    const list = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? Object.values(raw) : [];
-    return (list.length ? list : fallbackTypes).map((v, i) => {
-      const base = fallbackTypes[i % fallbackTypes.length];
-      const name = typeof v === 'string' ? v : v.displayName || v.name || v.label || base.name;
-      return { ...(typeof v === 'object' ? v : {}), name, displayName: name,
-        speed: Number(v?.speed || v?.maxSpeed) || base.speed,
-        handling: Number(v?.handling) || base.handling,
-        size: v?.size || base.size };
+  const colors=[0xb7c9c7,0xe0c5a1,0x607c89,0xa95441,0xd9d6cb,0x323f53,0x84936b,0xc2a050];
+  const cars=[], parked=[], plateMaterials=[];
+  let ready=false, sharedPlateGeometry, wheelGeometry;
+  function setup() {
+    if(ready) return; ready=true;
+    sharedPlateGeometry=new T.PlaneGeometry(.62,.22); wheelGeometry=new T.CylinderGeometry(.34,.34,.23,12); wheelGeometry.rotateZ(Math.PI/2);
+    const canvas=document.createElement('canvas'); canvas.width=512; canvas.height=128;
+    const ctx=canvas.getContext('2d'), codes=['SLN-204','BAY-718','PAL-392','SOL-581','SUN-846','TDE-063','MRD-427','VRO-159'];
+    codes.forEach((code,i) => {
+      const x=(i%4)*128,y=Math.floor(i/4)*64;
+      ctx.fillStyle='#f2e7c9'; ctx.fillRect(x,y,128,64); ctx.strokeStyle='#244d5e'; ctx.lineWidth=3; ctx.strokeRect(x+3,y+3,122,58);
+      ctx.textAlign='center'; ctx.fillStyle='#ac5139'; ctx.font='bold 10px sans-serif'; ctx.fillText('SOLANO BAY',x+64,y+16);
+      ctx.fillStyle='#163443'; ctx.font='bold 23px monospace'; ctx.fillText(code,x+64,y+43);
+    });
+    const atlas=new T.CanvasTexture(canvas); if(T.SRGBColorSpace) atlas.colorSpace=T.SRGBColorSpace;
+    // One GPU texture; UVs select one of eight entries. Materials are shared too.
+    const mat=new T.MeshStandardMaterial({map:atlas,roughness:.7});
+    codes.forEach((_,i) => {
+      const g=sharedPlateGeometry.clone(), uv=g.attributes.uv;
+      for(let n=0;n<uv.count;n++) uv.setXY(n,(i%4+uv.getX(n))/4,(1-Math.floor(i/4)+uv.getY(n))/2);
+      plateMaterials.push({geometry:g,material:mat});
     });
   }
-  vehicles.types = typeList();
-  function material(color, extra = {}) {
-    return SF.assets.standard({ color, roughness: 0.52, metalness: 0.22, ...extra });
+  function spec(type) {
+    const configured=(SF.CONFIG || {}).VEHICLE_TYPES;
+    const entries=Array.isArray(configured) ? configured : Object.values(configured || {});
+    const name=typeof type==='string' ? type : type && (type.name || type.displayName);
+    const base=specifications.find(s => s[0]===name) || specifications[0];
+    const extra=entries.find(e => e && (e.name===base[0] || e.displayName===base[0])) || {};
+    return {name:base[0], maxSpeed:Number(extra.maxSpeed)||base[1],acceleration:Number(extra.acceleration)||base[2],handling:Number(extra.handling)||base[3],length:base[4]};
   }
-  function mesh(geometry, mat, parent, x = 0, y = 0, z = 0) {
-    const m = new T.Mesh(geometry, mat); m.position.set(x, y, z);
-    m.castShadow = true; m.receiveShadow = true; parent.add(m); return m;
-  }
-  function box(w, h, d, mat, parent, x = 0, y = 0, z = 0) {
-    const m = mesh(SF.assets.box, mat, parent, x, y, z); m.scale.set(w, h, d); return m;
-  }
-  function plateTexture(code) {
-    const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    ctx.scale(256 / 192, 1);
-    ctx.fillStyle = '#e8e4cc'; ctx.fillRect(0, 0, 192, 64);
-    ctx.strokeStyle = '#202c35'; ctx.lineWidth = 5; ctx.strokeRect(2, 2, 188, 60);
-    ctx.fillStyle = '#183b57'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('SOLANO BAY', 96, 18);
-    ctx.fillStyle = '#17232c'; ctx.font = 'bold 29px monospace'; ctx.fillText(code, 96, 49);
-    const texture = new T.CanvasTexture(canvas); texture.colorSpace = T.SRGBColorSpace; return texture;
-  }
-  function plateCode() {
-    const letters = 'ABCDEFGHJKLMNPRSTUVWXYZ', digits = '0123456789';
-    return Array.from({ length: 3 }, () => letters[Math.floor(random() * letters.length)]).join('') + '-' +
-      Array.from({ length: 3 }, () => digits[Math.floor(random() * 10)]).join('');
-  }
-  // Eight power-of-two plates, built once. Entity creation only selects a variant.
-  const plateCodes = ['SFB-104', 'PAL-219', 'BAY-307', 'SOL-418', 'VRE-526', 'MRD-637', 'TDE-742', 'HBR-853'];
-  const plates = plateCodes.map(code => SF.assets.basic({ map: plateTexture(code), side: T.DoubleSide }));
-  const brakeOff = material(0x7f1616, { emissive: 0xff1515, emissiveIntensity: 0.35 });
-  const brakeOn = material(0x7f1616, { emissive: 0xff1515, emissiveIntensity: 2.4 });
-  const barSpecs = [[-0.22, 0xff1825, 0xff0011], [0.22, 0x137bff, 0x064fff]];
-  const barOn = barSpecs.map(([, color, emissive]) => material(color, { emissive, emissiveIntensity: 4 }));
-  const barOff = barSpecs.map(([, color, emissive]) => material(color, { emissive, emissiveIntensity: 0.35 }));
-  // All existing vehicle finishes are palette resources, not entity resources.
-  [...colors(), 0xe7e9e7, 0x17191b, 0x20282b, 0x222a30,
-    0xb5c1c3, 0x35617c, 0x9b5038, 0xe1d2a0, 0x405b50,
-    0x758b91, 0x8d4536, 0x325873, 0xc1ae8a, 0x3d514b,
-    0x728b98, 0x9d583d, 0xdbc58c, 0x344f65, 0x414744].forEach(color => material(color));
-  material(0x89939a, { metalness: 0.7 });
-  material(0x375765, { roughness: 0.19, metalness: 0.5, transparent: true, opacity: 0.87 });
-  material(0xe8f5ff, { emissive: 0xa9dfff, emissiveIntensity: 1.2 });
-  material(0x1b3b4e, { transparent: true, opacity: 0.85 });
-  function makeWheel(car, x, z, front) {
-    const pivot = new T.Group(); pivot.position.set(x, 0.43, z); car.mesh.add(pivot);
-    const tire = mesh(SF.assets.tire, material(0x17191b), pivot);
-    tire.rotation.z = Math.PI / 2;
-    const hub = mesh(SF.assets.hub, material(0x89939a, { metalness: 0.7 }), pivot);
-    hub.rotation.z = Math.PI / 2; car.wheels.push({ pivot, tire, front });
-  }
-  function addPointLight(parent, color, intensity, range, x, y, z) {
-    SF.render.addVehicleLight(parent, color, intensity, range, x, y, z);
-  }
-  function addFlare(parent, color, size, position) {
-    if (typeof SF.render?.makeFlare !== 'function') return null;
-    const sprite = SF.render.makeFlare(color, size);
-    if (sprite) { sprite.position.copy(position); parent.add(sprite); }
-    return sprite;
-  }
-  vehicles.create = function (type = vehicles.types[0], options = {}) {
-    if (!T || !scene()) return null;
-    if (typeof type === 'string') type = vehicles.types.find(t => t.name === type) || vehicles.types[0];
-    type ||= vehicles.types[0];
-    const size = type.size || [1.9, 1.4, 4.6];
-    const patrol = !!options.patrol;
-    const color = patrol ? 0xe7e9e7 : options.color ?? pick(colors().length ? colors() : [0xb5c1c3, 0x35617c, 0x9b5038, 0xe1d2a0, 0x405b50]);
-    const root = new T.Group(); root.position.copy(vec(options.position)); root.rotation.y = options.heading || 0;
-    const body = new T.Group(); root.add(body);
-    box(size[0], size[1] * 0.53, size[2], material(color), body, 0, size[1] * 0.62, 0);
-    box(size[0] * 0.78, size[1] * 0.51, size[2] * 0.47, material(options.glassColor || 0x375765, {
-      roughness: 0.19, metalness: 0.5, transparent: true, opacity: 0.87
-    }), body, 0, size[1] * 1.07, 0.02);
-    box(size[0] * 0.88, 0.10, size[2] * 0.16, material(color), body, 0, size[1] * 0.85, size[2] * 0.38);
-    box(size[0] * 0.9, 0.09, size[2] * 0.1, material(color), body, 0, size[1] * 0.84, -size[2] * 0.42);
-    for (const side of [-1, 1]) {
-      box(0.045, 0.035, size[2] * 0.42, material(0x20282b), body, side * size[0] * 0.51, size[1] * 0.79, 0);
+  function build(type, options={}) {
+    setup(); const A=SF.actors,s=spec(type), mesh=new T.Group(), patrol=!!options.patrol;
+    const color=patrol ? 0xeee9da : options.color===undefined ? A.pick(colors) : options.color;
+    A.part(mesh,[1.85,.57,s.length],[0,.78,0],color);
+    A.part(mesh,[1.65,.65,s.length*.47],[0,1.35,-.15],patrol ? 0x223644 : color);
+    A.part(mesh,[1.53,.4,.04],[0,1.47,s.length*.235-.12],0x42616b);
+    A.part(mesh,[1.53,.4,.04],[0,1.47,-s.length*.235-.18],0x42616b);
+    [-1,1].forEach(side => A.part(mesh,[.035,.42,s.length*.4],[side*.84,1.44,-.16],0x42616b));
+    if(s.name==='Hauler Pickup') A.part(mesh,[1.55,.06,1.4],[0,1.09,-1.55],0x3a4141);
+    if(s.name==='Cargo Van') A.part(mesh,[1.78,1.05,2.8],[0,1.52,-.9],color);
+    if(s.name==='Solano Cab' && !patrol) A.part(mesh,[.65,.2,.32],[0,1.81,-.1],0xeac14a);
+    const wheels=[],front=[];
+    [-1,1].forEach(side => [-1,1].forEach(end => {
+      const pivot=new T.Group(); pivot.position.set(side*.94,.4,end*s.length*.32); mesh.add(pivot);
+      const wheel=new T.Mesh(wheelGeometry,A.material(0x202629)); pivot.add(wheel); wheels.push(wheel); if(end===1) front.push(pivot);
+    }));
+    const brakeMaterial=A.material(0xeb3024,true), lamps=[];
+    [-1,1].forEach(side => {
+      A.part(mesh,[.43,.19,.045],[side*.59,.91,s.length/2+.025],0xffe3a2,undefined,true);
+      lamps.push(A.part(mesh,[.4,.16,.045],[side*.61,.88,-s.length/2-.025],0x66170e));
+    });
+    const plateEntry=A.pick(plateMaterials), plate=new T.Mesh(plateEntry.geometry,plateEntry.material);
+    plate.position.set(0,.66,-s.length/2-.035); plate.rotation.y=Math.PI; plate.name='rear license plate'; mesh.add(plate);
+    const car={mesh,type:s.name,displayName:patrol?'Solano Bay Patrol':s.name,spec:s,speed:0,steering:0,health:100,locked:false,driver:null,patrol,wheels,front,lamps,brakeMaterial,baseTail: A.material(0x66170e),flash:[],owned:false};
+    if(patrol) {
+      [-1,1].forEach(side => A.part(mesh,[.025,.3,1.8],[side*.94,.85,0],0x223644));
+      A.part(mesh,[1.45,.1,.35],[0,1.77,-.1],0x1d2730);
+      [-1,1].forEach((side,i) => {
+        const color=i?0x277fff:0xff2825, lamp=A.part(mesh,[.55,.16,.3],[side*.4,1.88,-.1],color,undefined,true);
+        let flare=null; if(SF.render && SF.render.makeFlare) { flare=SF.render.makeFlare(color,1.45); flare.position.copy(lamp.position); mesh.add(flare); }
+        car.flash.push({lamp,flare});
+      });
     }
-    const car = {
-      type, displayName: patrol ? 'Solano Bay Patrol' : type.displayName || type.name,
-      name: patrol ? 'Solano Bay Patrol' : type.name, mesh: root, wheels: [],
-      speed: 0, maxSpeed: type.speed * (patrol ? 1.04 : 1), handling: type.handling,
-      patrol, locked: !!options.locked, driver: options.driver || null,
-      parked: !!options.parked, traffic: !!options.traffic, lights: [], flares: [],
-      heading: options.heading || 0, braking: false, plate: plateCode(),
-      width: size[0], length: size[2], dead: false
-    };
-    for (const x of [-size[0] * 0.49, size[0] * 0.49]) {
-      makeWheel(car, x, size[2] * 0.31, true); makeWheel(car, x, -size[2] * 0.31, false);
+    mesh.position.copy(A.position(options.position)); mesh.rotation.y=options.heading || 0; mesh.userData.car=car;
+    cars.push(car); (options.scene || A.scene())?.add(mesh); return car;
+  }
+  const vehicles=SF.vehicles={
+    cars,parked,colors,types:specifications.map(s=>s[0]),create:build,
+    init(scene=SF.actors.scene()) { setup(); if(scene && !this.parkedReady) { this.parkedReady=true; this.populateParked(scene); } return this; },
+    entryPoints(car) { return [-1,1].map(side => car.mesh.localToWorld(new T.Vector3(side*1.65,0,.35))); },
+    nearest(position,radius=5) { let found=null,dist=radius; for(const car of cars) { const d=car.mesh.position.distanceTo(position); if(car.mesh.visible && d<dist) {found=car;dist=d;} } return found; },
+    steal(car) {
+      if(car.locked || car.driver) return false;
+      if(!car.owned && SF.police) SF.police.crime('vehicle theft',car.mesh.position,1);
+      car.owned=true; car.traffic=false; car.parked=false;
+      if(car.parkingBatch) { car.parkingBatch.hide(car.parkingIndex); car.parkingBatch=null; }
+      car.mesh.visible=true; return true;
+    },
+    drive(car,dt,input={}) {
+      const A=SF.actors; dt=A.clamp(dt,0,.05);
+      const throttle=A.clamp(Number(input.throttle)||0,-1,1),brake=!!input.brake;
+      car.speed+=throttle*car.spec.acceleration*dt;
+      car.speed*=Math.exp(-(brake?5:throttle?.12:1.2)*dt);
+      car.speed=A.clamp(car.speed,-car.spec.maxSpeed*.38,car.spec.maxSpeed);
+      car.steering+=(A.clamp(Number(input.steer)||0,-1,1)*.48-car.steering)*Math.min(1,dt*8);
+      car.mesh.rotation.y+=car.steering*car.speed/car.spec.length*car.spec.handling*dt;
+      car.mesh.position.x+=Math.sin(car.mesh.rotation.y)*car.speed*dt; car.mesh.position.z+=Math.cos(car.mesh.rotation.y)*car.speed*dt;
+      const b=A.bounds(),p=car.mesh.position;
+      if(p.x<b.minX+2 || p.x>b.maxX-2 || p.z<b.minZ+2 || p.z>b.maxZ-2) {p.x=A.clamp(p.x,b.minX+2,b.maxX-2);p.z=A.clamp(p.z,b.minZ+2,b.maxZ-2);car.speed*=-.2;}
+      car.front.forEach(w=>w.rotation.y=car.steering); car.wheels.forEach(w=>w.rotation.x+=car.speed*dt/.34);
+      car.lamps.forEach(l=>l.material=brake || throttle<0 ? car.brakeMaterial : car.baseTail);
+      if(car.health<=0) car.speed*=Math.exp(-8*dt);
+    },
+    damage(car,amount) {car.health=Math.max(0,car.health-amount);car.hitTime=.25;},
+    update(dt,time) {
+      this.clock=(this.clock || 0)+Math.min(dt,.05); const now=Number.isFinite(time)?time:this.clock;
+      cars.forEach(car=> {
+        car.flash.forEach((f,i)=>{const on=(Math.floor(now*7)%2)===i; f.lamp.visible=on; if(f.flare) {f.flare.visible=on; f.flare.scale.setScalar(on?1.2:0.01);} });
+        if(car.hitTime>0) {car.hitTime-=dt;car.mesh.rotation.z=Math.sin(car.hitTime*45)*.018;} else car.mesh.rotation.z=0;
+      });
+    },
+    populateParked(scene) {
+      const A=SF.actors, raw=(SF.world || {}).parkingSpots || (SF.city || {}).parkingSpots || [], spots=Array.isArray(raw)?raw:[];
+      if(!spots.length) { const g=A.grid(); g.xs.forEach(x=>g.zs.slice(0,-1).forEach((z,i)=>{for(let k=0;k<3;k++) spots.push({x:x+7,z:z+15+k*7,heading:i%2?0:Math.PI});})); }
+      const selected=spots.filter(()=>A.rand()<.8).slice(0,360);
+      // A template per kind/color/plate bucket gives every repeated part an InstancedMesh.
+      const buckets=new Map(); selected.forEach((spot,i)=> { const kind=i%6,color=colors[(kind+(Math.floor(i/6)%2)*3)%6],key=kind+':'+color; if(!buckets.has(key)) buckets.set(key,[]); buckets.get(key).push(spot); });
+      buckets.forEach((list,key)=> {
+        const [kind,color]=key.split(':').map(Number), template=build(specifications[kind][0],{color,scene});
+        template.mesh.updateMatrixWorld(true); const batches=[];
+        template.mesh.traverse(part=> { if(part.isMesh) {const instance=new T.InstancedMesh(part.geometry,part.material,list.length);instance.instanceMatrix.setUsage(T.DynamicDrawUsage);scene.add(instance);batches.push({instance,local:part.matrixWorld.clone()});} });
+        scene.remove(template.mesh); cars.splice(cars.indexOf(template),1);
+        const dummy=new T.Object3D(), matrix=new T.Matrix4();
+        const batch={ hide(index) {const zero=new T.Matrix4().makeScale(0,0,0); batches.forEach(b=>{b.instance.setMatrixAt(index,zero);b.instance.instanceMatrix.needsUpdate=true;});} };
+        list.forEach((spot,index)=> {
+          dummy.position.copy(A.position(spot));dummy.rotation.set(0,Number(spot.heading === undefined ? spot.rotation : spot.heading)||0,0);dummy.updateMatrix();
+          batches.forEach(b=>{matrix.multiplyMatrices(dummy.matrix,b.local);b.instance.setMatrixAt(index,matrix);});
+          // Parked logical cars materialize only on entry; no hidden per-car mesh allocation.
+          const record={position:dummy.position.clone(),heading:dummy.rotation.y,type:template.type,batch,index,color,car:null}; parked.push(record);
+        });
+        batches.forEach(b=>{b.instance.instanceMatrix.needsUpdate=true;b.instance.computeBoundingSphere();});
+      });
     }
-    const headY = size[1] * 0.59;
-    for (const x of [-size[0] * 0.36, size[0] * 0.36]) {
-      const light = box(0.34, 0.15, 0.09, material(0xe8f5ff, {
-        emissive: 0xa9dfff, emissiveIntensity: 1.2
-      }), root, x, headY, size[2] * 0.503);
-      car.lights.push(light);
-      addPointLight(root, 0xd6eaff, 0.55, 18, x, headY, size[2] * 0.57);
-      const brake = box(0.35, 0.16, 0.08, brakeOff, root, x, headY, -size[2] * 0.503); car.brakeLights ||= []; car.brakeLights.push(brake);
-    }
-    const plateIndex = [...car.plate].reduce((n, c) => n + c.charCodeAt(0), 0) % plates.length;
-    car.plate = plateCodes[plateIndex];
-    const plate = mesh(SF.assets.plane, plates[plateIndex], root,
-      0, size[1] * 0.6, -size[2] * 0.507);
-    plate.scale.set(0.43, 0.14, 1);
-    plate.rotation.y = Math.PI; car.plateMesh = plate;
-    addPointLight(root, 0xffdfb8, 0.45, 9, 0, size[1] * 0.9, size[2] * 0.55);
-    if (patrol) {
-      car.locked = options.locked ?? true;
-      box(size[0] * 0.52, 0.09, 0.22, material(0x222a30), root, 0, size[1] * 1.4, 0.02);
-      for (const [i, [x, , emissive]] of barSpecs.entries()) {
-        const lamp = box(0.25, 0.13, 0.2, barOn[i], root,
-          x, size[1] * 1.48, 0.02);
-        car.lightbar ||= []; car.lightbar.push(lamp);
-        car.flares.push(addFlare(root, emissive, 2.5, new T.Vector3(x, size[1] * 1.5, 0.03)));
-      }
-      box(size[0] * 1.005, 0.22, size[2] * 0.4, material(0x1b3b4e, { transparent: true, opacity: 0.85 }), root, 0, size[1] * 0.66, 0);
-      car.callsign = options.callsign || 'UNIT'; vehicles.patrols.push(car);
-    }
-    root.userData.vehicle = car;
-    if (patrol) scene().add(root); else SF.render.batchActor(root);
-    vehicles.all.push(car);
-    if (car.parked) vehicles.parked.push(car);
-    if (car.traffic) vehicles.traffic.push(car);
+  };
+  const nearest=vehicles.nearest;
+  vehicles.nearest=function(position,radius=5) {
+    let car=nearest(position,radius),distance=car?car.mesh.position.distanceTo(position):radius,record=null;
+    parked.forEach(p=>{if(!p.car && p.position.distanceTo(position)<distance){record=p;distance=p.position.distanceTo(position);}});
+    if(record) {car=build(record.type,{position:record.position,heading:record.heading,color:record.color});car.mesh.visible=false;car.parked=true;car.parkingBatch=record.batch;car.parkingIndex=record.index;record.car=car;}
     return car;
   };
-  vehicles.entryPoints = car => {
-    const p = car.mesh.position, a = car.mesh.rotation.y;
-    return [-1, 1].map(side => new T.Vector3(p.x + Math.cos(a) * side * (car.width * 0.64), 0,
-      p.z - Math.sin(a) * side * (car.width * 0.64)));
-  };
-  vehicles.nearest = function (position, maxDist = Infinity) {
-    let found = null, best = maxDist;
-    for (const car of vehicles.all) {
-      if (car.dead || car.locked || car.driver === SF.player || car.driver === 'police' && car.locked) continue;
-      const d = position.distanceTo(car.mesh.position); if (d < best) { best = d; found = car; }
-    }
-    return found;
-  };
-  vehicles.steal = function (car) {
-    if (!car || car.stolen) return;
-    car.stolen = true; car.locked = false;
-    if (car.traffic) {
-      car.traffic = false;
-      const i = vehicles.traffic.indexOf(car); if (i !== -1) vehicles.traffic.splice(i, 1);
-      car.driver = null;
-    }
-    const police = SF.police;
-    if (police && police.nearestCanSee?.(car.mesh.position, 42)) police.crime('VEHICLE THEFT', 1);
-    else if (police?.units?.some(u => u.kind === 'ground' && u.dist < 30)) police.crime('VEHICLE THEFT', 1);
-  };
-  function spots() {
-    const raw = SF.world?.parkingSpots || SF.city?.parkingSpots || SF.world?.parking || SF.city?.parking || [];
-    return Array.isArray(raw) ? raw : raw.spots || raw.positions || [];
-  }
-  vehicles.populateParking = function (target = SF.CONFIG?.tuning?.parkedCarFillRate ?? 0.78) {
-    const slots = spots(); if (!slots.length) return 0;
-    // Detailed interactive cars are costly in software-rendered capture. Keep a
-    // citywide spread while preserving enough nearby parked cars for street shots.
-    const desired = Math.min(200, Math.ceil(slots.length * Math.min(0.94, target)));
-    let count = vehicles.parked.length;
-    for (let i = count; i < desired; i++) {
-      const spot = slots[Math.floor(i * slots.length / desired)]; if (!spot) break;
-      const position = spot.position || spot;
-      const type = vehicles.types[i % vehicles.types.length];
-      const color = pick(colors().length ? colors() : [0x758b91, 0x8d4536, 0x325873, 0xc1ae8a, 0x3d514b]);
-      const car = vehicles.create(type, { position, heading: spot.heading ?? spot.rotation ?? 0, color, parked: true });
-      if (car) count++;
-    }
-    return count;
-  };
-  vehicles.remove = function (car) {
-    if (!car || car.dead && !car.mesh.parent && !car.mesh.userData.batchedActor) return;
-    SF.render.unbatchActor(car.mesh); scene()?.remove(car.mesh); car.dead = true;
-    for (const list of [vehicles.all, vehicles.parked, vehicles.traffic, vehicles.patrols]) {
-      const i = list.indexOf(car); if (i !== -1) list.splice(i, 1);
-    }
-  };
-  vehicles.init = function () {
-    if (vehicles.initialized) return vehicles;
-    vehicles.initialized = true; vehicles.populateParking(); return vehicles;
-  };
-  vehicles.update = function (dt) {
-    const player = SF.player, input = player?.keys || {};
-    for (const car of vehicles.all) {
-      if (car.dead) continue;
-      if (car.driver === player) {
-        const throttle = (input.KeyW || input.ArrowUp ? 1 : 0) - (input.KeyS || input.ArrowDown ? 1 : 0);
-        const steer = (input.KeyD || input.ArrowRight ? 1 : 0) - (input.KeyA || input.ArrowLeft ? 1 : 0);
-        const brake = !!(input.Space || input.KeyS || input.ArrowDown);
-        car.braking = brake;
-        car.speed += throttle * car.handling * 25 * dt;
-        car.speed *= Math.max(0, 1 - (brake ? 4.5 : 0.55) * dt);
-        car.speed = Math.max(-car.maxSpeed * 0.34, Math.min(car.maxSpeed, car.speed));
-        car.heading += steer * car.handling * Math.min(1, Math.abs(car.speed) / 8) * Math.sign(car.speed || 1) * dt;
-        car.mesh.rotation.y = car.heading;
-        car.mesh.position.x += Math.sin(car.heading) * car.speed * dt;
-        car.mesh.position.z += Math.cos(car.heading) * car.speed * dt;
-        SF.player?.helpers?.clamp(car.mesh.position, car.length * 0.5);
-        if (SF.police && Math.abs(car.speed) > 23) SF.peds?.scatterNear?.(car.mesh.position, 8);
-      }
-      car.wheels.forEach(w => {
-        if (w.front) w.pivot.rotation.y = car.driver === player ?
-          ((input.KeyD || input.ArrowRight ? 1 : 0) - (input.KeyA || input.ArrowLeft ? 1 : 0)) * 0.38 : 0;
-        w.tire.rotation.x += (car.speed || 0) * dt / 0.37;
-      });
-      car.brakeLights?.forEach(l => { l.material = car.braking ? brakeOn : brakeOff; });
-      if (car.lightbar) {
-        const t = (globalThis.performance?.now?.() || 0) * 0.012;
-        car.lightbar.forEach((l, i) => { l.material = i === (Math.floor(t) % 2) ? barOn[i] : barOff[i]; });
-        car.flares.forEach((f, i) => { if (f) f.visible = i === (Math.floor(t) % 2); });
-      }
-    }
-  };
-})(globalThis.SF = globalThis.SF || {});
+})();

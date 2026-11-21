@@ -1,105 +1,99 @@
-"""Run the Sunfall player smoke path in headless Chromium."""
+"""Run with python tests/browser-session.py (requires Playwright + Chromium)."""
+import asyncio
+import os
 from pathlib import Path
 import socket
 import subprocess
-import time
-from urllib.request import urlopen
-
-ROOT = Path(__file__).resolve().parents[1]
+import sys
+import urllib.request
 
 
-def run(url):
-    from playwright.sync_api import sync_playwright
-
+async def main():
+    from playwright.async_api import async_playwright
+    root = Path(__file__).resolve().parents[1]
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0))
+        port = sock.getsockname()[1]
+    env = dict(os.environ, PORT=str(port))
+    server = subprocess.Popen(['node', 'serve.ts'], cwd=root, env=env, stdout=subprocess.DEVNULL)
     failures = []
-
-    def report(label, passed, details):
-        print(f"{'PASS' if passed else 'FAIL'} {label} — {details}", flush=True)
-        if not passed:
-            failures.append(label)
-
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
-        page = browser.new_page()
-        errors = []
-        page.on("pageerror", lambda error: errors.append(str(error)))
-        try:
-            page.goto(url, wait_until="domcontentloaded")
-            page.get_by_role("button", name="New Game", exact=True).click(timeout=8000)
-            page.wait_for_function("window.SF?.state?.mode === 'play'")
-            arm_sample = """() => Object.values(SF.player.mesh.userData.arms)
-                .filter(arm => arm?.rotation)
-                .flatMap(({ rotation: { x, y, z } }) => [x, y, z])"""
-            # Headless Chromium may decline pointer lock even after a real click.
-            page.evaluate("() => { SF.input.locked = true; }")
-            page.keyboard.down("KeyW")
-            try:
-                page.wait_for_timeout(180)
-                first = page.evaluate(arm_sample)
-                page.wait_for_timeout(140)
-                second = page.evaluate(arm_sample)
-            finally:
-                page.keyboard.up("KeyW")
-            delta = max((abs(a - b) for a, b in zip(first, second)), default=0)
-            report("arm swing", delta > 0.001, f"rotation delta {delta:.6f} rad")
-
-            before = page.evaluate("SF.runtime.wanted()")
-            page.evaluate("""() => {
-                const peds = SF.peds?.all;
-                const origin = SF.runtime.position();
-                const candidates = Object.values(peds || {})
-                    .map(ped => ped?.mesh?.position || ped?.position)
-                    .filter(position => position && Number.isFinite(position.x))
-                    .sort((a, b) => Math.hypot(a.x-origin.x, a.z-origin.z)
-                        - Math.hypot(b.x-origin.x, b.z-origin.z));
-                if (candidates.length) {
-                    const witness = candidates[0];
-                    origin.set(witness.x + 3, origin.y, witness.z);
-                }
-            }""")
-            page.mouse.down()
-            try:
-                page.wait_for_timeout(450)
-            finally:
-                page.mouse.up()
-            page.wait_for_timeout(500)
-            after = page.evaluate("SF.runtime.wanted()")
-            report("wanted response", after > before, f"stars {before} → {after}")
-            report("browser errors", not errors, "; ".join(errors) or "none")
-        except Exception as error:
-            report("browser session", False, f"{error}; page errors: {errors}")
-        finally:
-            browser.close()
-    return bool(failures)
-
-
-def main():
-    server = None
     try:
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", 0))
-            port = sock.getsockname()[1]
-        url = f"http://127.0.0.1:{port}/game/"
-        server = subprocess.Popen(["node", "serve.ts", str(port)], cwd=ROOT)
-        for _ in range(60):
+        for _ in range(100):
             try:
-                with urlopen(url, timeout=0.3):
+                with urllib.request.urlopen(f'http://127.0.0.1:{port}/game/', timeout=0.2):
                     break
-            except OSError:
-                if server.poll() is not None:
-                    raise RuntimeError("Static server exited")
-                time.sleep(0.1)
+            except Exception:
+                await asyncio.sleep(0.1)
         else:
-            raise RuntimeError("Static server did not become ready")
-        return run(url)
-    except Exception as error:
-        print(f"FAIL browser session — {error}")
-        return 1
+            raise RuntimeError('server did not become ready')
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True, args=['--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+            page = await browser.new_page(viewport={'width': 1280, 'height': 720})
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            await page.goto(f'http://127.0.0.1:{port}/game/', wait_until='networkidle')
+            await page.get_by_role('button', name='New Game', exact=True).first.click()
+            await page.wait_for_function("window.SF?.state?.mode === 'play'")
+            print('PASS new game enters play')
+            sample = """() => {
+              const arms = SF.player.mesh.userData.arms;
+              const list = Array.isArray(arms) ? arms : Object.values(arms);
+              return list.map(a => { const r = (a.mesh || a).rotation; return r ? [r.x,r.y,r.z] : null; }).filter(Boolean);
+            }"""
+            await page.keyboard.down('KeyW')
+            await page.wait_for_timeout(170)
+            before = await page.evaluate(sample)
+            await page.wait_for_timeout(190)
+            after = await page.evaluate(sample)
+            await page.keyboard.up('KeyW')
+            delta = max((abs(a-b) for x, y in zip(before, after) for a, b in zip(x, y)), default=0)
+            if delta > 0.001:
+                print(f'PASS live arm swing delta {delta:.4f}')
+            else:
+                failures.append('arm swing'); print(f'FAIL live arm swing delta {delta:.4f}')
+            # Place a real pedestrian and patrol in clear nearby space; inject no
+            # wanted value and let the weapon/crime system observe the mouse input.
+            evidence = await page.evaluate("""() => {
+              const p = SF.player.mesh.position;
+              const pools = [SF.peds?.list, SF.peds?.peds, SF.peds?.people, SF.peds?.all];
+              const ped = pools.find(Array.isArray)?.find(x => x.mesh || x.position);
+              if (ped) (ped.mesh?.position || ped.position).set(p.x, p.y, p.z - 7);
+              SF.weapons.unlock('pistol'); SF.weapons.equip('pistol');
+              const units = SF.police.units || [];
+              for (const unit of units) {
+                const mesh = unit.mesh || unit.vehicle?.mesh;
+                if (mesh) { mesh.position.set(p.x + 9, p.y, p.z - 4); break; }
+              }
+              SF.input.yaw = 0; SF.input.pitch = 0;
+              return {ped: !!ped, units: units.length};
+            }""")
+            await page.mouse.click(640, 360)
+            await page.keyboard.press('Digit2')
+            await page.mouse.down()
+            await page.wait_for_timeout(1500)
+            await page.mouse.up()
+            wanted = await page.evaluate("""() => ({stars: Number(SF.police.stars ?? SF.police.wanted?.stars ?? SF.police.wanted ?? 0), units: SF.police.units.length})""")
+            if evidence['ped'] and wanted['stars'] > 0 and wanted['units'] > 0:
+                print(f'PASS witnessed crime response {wanted} witnesses={evidence}')
+            else:
+                failures.append('wanted response'); print(f'FAIL witnessed crime response {wanted} witnesses={evidence}')
+            if errors:
+                failures.append('browser errors'); print('FAIL browser errors: ' + ' | '.join(errors))
+            else:
+                print('PASS no browser exceptions')
+            await browser.close()
     finally:
-        if server is not None:
-            server.terminate()
+        server.terminate()
+        try:
             server.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server.kill()
+    return 1 if failures else 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+if __name__ == '__main__':
+    try:
+        sys.exit(asyncio.run(main()))
+    except Exception as error:
+        print('FAIL browser-session: ' + str(error))
+        sys.exit(1)

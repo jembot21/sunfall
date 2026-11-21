@@ -1,143 +1,123 @@
+/* No postprocessing. One shadowed sun, one restrained sky fill, one shared flare. */
 (function () {
   'use strict';
-  const SF = window.SF, T = THREE, C = SF.CONFIG;
-  const scene = new T.Scene(), camera = new T.PerspectiveCamera(58, innerWidth / innerHeight, 0.15, C.tuning.farDistance);
-  const renderer = new T.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); renderer.setSize(innerWidth, innerHeight);
-  renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = C.tuning.exposure;
-  if ('outputColorSpace' in renderer) renderer.outputColorSpace = T.SRGBColorSpace; else renderer.outputEncoding = T.sRGBEncoding;
-  // Keep the scene on the default framebuffer; there is no offscreen shadow or post pass.
-  renderer.shadowMap.enabled = false;
-  scene.fog = new T.Fog(C.palette.horizon, 280, 1050); scene.background = new T.Color(C.palette.horizon);
-  const sun = new T.DirectionalLight(0xffd4a0, 3.15); sun.position.set(-160, 145, -220);
-  sun.castShadow = false;
-  scene.add(sun); scene.add(sun.target); scene.add(new T.HemisphereLight(0xb6bacb, 0x44332b, 0.24));
-  const flareCanvas = document.createElement('canvas'); flareCanvas.width = flareCanvas.height = 128;
-  const ctx = flareCanvas.getContext('2d'), gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  gradient.addColorStop(0, 'rgba(255,255,255,1)'); gradient.addColorStop(0.12, 'rgba(255,255,255,.8)'); gradient.addColorStop(0.4, 'rgba(255,255,255,.17)'); gradient.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = gradient; ctx.fillRect(0, 0, 128, 128);
-  const flareTexture = new T.CanvasTexture(flareCanvas);
-  const standardMaterials = new Map(), basicMaterials = new Map(), spriteMaterials = new Map();
-  // Fixed shared primitives. Dimensions belong to transforms, never GPU buffers.
-  const assets = SF.assets = {
-    box: new T.BoxGeometry(1, 1, 1), plane: new T.PlaneGeometry(1, 1),
-    tire: new T.CylinderGeometry(0.37, 0.37, 0.22, 14),
-    hub: new T.CylinderGeometry(0.18, 0.18, 0.232, 12),
-    helicopter: new T.CapsuleGeometry(0.7, 2.6, 4, 8),
-    spotlight: new T.ConeGeometry(3.1, 20, 20, 1, true),
-    standard(options) {
-      const key = JSON.stringify(options);
-      if (!standardMaterials.has(key)) standardMaterials.set(key, new T.MeshStandardMaterial(options));
-      return standardMaterials.get(key);
-    },
-    basic(options) {
-      const key = JSON.stringify({ ...options, map: options.map?.uuid });
-      if (!basicMaterials.has(key)) basicMaterials.set(key, new T.MeshBasicMaterial(options));
-      return basicMaterials.get(key);
-    }
+  var SF = window.SF, T = window.THREE, C = SF.CONFIG, tuning = C.tuning;
+  var render = SF.render = { renderer: null, scene: null, camera: null, cameraRig: null,
+    mode: 'title', ready: false, running: false, elapsed: 0, frame: 0, flareTexture: null };
+  var lastTime = 0, resumeAfterHidden = false;
+  var target = new T.Vector3(), desired = new T.Vector3(), sunOffset = new T.Vector3(-180, 80, -120);
+  function error(message) {
+    document.getElementById('render-error-text').textContent = message;
+    document.getElementById('render-error').hidden = false;
+  }
+  function flareTexture() {
+    if (render.flareTexture) return render.flareTexture;
+    var canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
+    var g = canvas.getContext('2d'), gradient = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gradient.addColorStop(0, 'rgba(255,255,255,1)'); gradient.addColorStop(0.12, 'rgba(255,246,218,.85)');
+    gradient.addColorStop(0.35, 'rgba(255,255,255,.22)'); gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gradient; g.fillRect(0, 0, 64, 64);
+    render.flareTexture = new T.CanvasTexture(canvas); return render.flareTexture;
+  }
+  var flareMaterials = {};
+  render.makeFlare = function (colorHex, size) {
+    var key = String(colorHex);
+    if (!flareMaterials[key]) flareMaterials[key] = new T.SpriteMaterial({ map: flareTexture(), color: colorHex,
+      blending: T.AdditiveBlending, transparent: true, depthWrite: false, depthTest: true, toneMapped: false });
+    var sprite = new T.Sprite(flareMaterials[key]); sprite.scale.set(size, size, 1); return sprite;
   };
-  [0xffcf86, 0xff0011, 0x064fff, 0xffe9a0, 0xffbf59].forEach(colorHex => {
-    spriteMaterials.set(colorHex, new T.SpriteMaterial({ map: flareTexture, color: colorHex, opacity: colorHex === 0xff0011 || colorHex === 0x064fff ? 0.8 : 1, blending: T.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false }));
-  });
-  function makeFlare(colorHex, size) {
-    const sprite = new T.Sprite(spriteMaterials.get(colorHex));
-    sprite.scale.set(size, size, 1); return sprite;
-  }
-  // These hierarchies remain the authoritative animation and raycast targets.
-  // Only their shared instance batches enter the render scene.
-  const actors = new Map(), batches = new Map(), lightSources = new Map();
-  const lightPool = Array.from({ length: 8 }, () => {
-    const light = new T.PointLight(0xffffff, 0, 18); scene.add(light); return light;
-  });
-  function batchActor(root) {
-    const parts = [];
-    root.traverse(part => { if (part.isMesh) parts.push(part); });
-    root.removeFromParent(); actors.set(root, parts);
-    root.userData.batchedActor = true;
-  }
-  function unbatchActor(root) {
-    actors.delete(root); lightSources.delete(root); root.userData.batchedActor = false;
-  }
-  function addVehicleLight(root, color, intensity, range, x, y, z) {
-    if (!lightSources.has(root)) lightSources.set(root, []);
-    lightSources.get(root).push({ color, intensity, range, local: new T.Vector3(x, y, z), world: new T.Vector3(), distance: 0 });
-  }
-  function prepare() {
-    for (const batch of batches.values()) batch.parts.length = 0;
-    for (const [root, parts] of actors) {
-      root.updateMatrixWorld(true);
-      if (!root.visible) continue;
-      for (const part of parts) {
-        let visible = true;
-        for (let p = part; p; p = p.parent) if (!p.visible) { visible = false; break; }
-        if (!visible) continue;
-        const key = part.geometry.uuid + ':' + part.material.uuid;
-        if (!batches.has(key)) batches.set(key, { parts: [], mesh: null });
-        batches.get(key).parts.push(part);
-      }
-    }
-    for (const batch of batches.values()) {
-      const count = batch.parts.length;
-      if (count && (!batch.mesh || batch.mesh.instanceMatrix.count < count)) {
-        if (batch.mesh) { scene.remove(batch.mesh); batch.mesh.dispose(); }
-        const capacity = Math.max(16, 2 ** Math.ceil(Math.log2(count)));
-        const first = batch.parts[0];
-        batch.mesh = new T.InstancedMesh(first.geometry, first.material, capacity);
-        batch.mesh.instanceMatrix.setUsage(T.DynamicDrawUsage);
-        batch.mesh.userData.dynamicActors = true;
-        // Actors can move anywhere; a stale static bounding sphere must never hide them.
-        batch.mesh.frustumCulled = false; scene.add(batch.mesh);
-      }
-      if (!batch.mesh) continue;
-      const mesh = batch.mesh, data = mesh.instanceMatrix.array;
-      let changed = mesh.count !== count;
-      mesh.count = count;
-      for (let i = 0; i < count; i++) {
-        const elements = batch.parts[i].matrixWorld.elements;
-        for (let j = 0; j < 16; j++) {
-          const value = Math.fround(elements[j]);
-          if (data[i * 16 + j] !== value) { data[i * 16 + j] = value; changed = true; }
-        }
-      }
-      if (changed) mesh.instanceMatrix.needsUpdate = true;
-    }
-    const nearby = [];
-    for (const [root, sources] of lightSources) {
-      if (!root.visible) continue;
-      // Patrols still use native scene hierarchies; batched actors were updated above.
-      if (!actors.has(root)) root.updateMatrixWorld(true);
-      for (const source of sources) {
-        source.world.copy(source.local).applyMatrix4(root.matrixWorld);
-        source.distance = source.world.distanceToSquared(camera.position);
-        if (source.distance < (source.range + 25) ** 2) nearby.push(source);
-      }
-    }
-    nearby.sort((a, b) => a.distance - b.distance);
-    lightPool.forEach((light, i) => {
-      const source = nearby[i];
-      light.intensity = source ? source.intensity : 0;
-      if (source) { light.position.copy(source.world); light.color.set(source.color); light.distance = source.range; }
+  function sky(scene) {
+    var material = new T.ShaderMaterial({ side: T.BackSide, depthWrite: false, fog: false,
+      uniforms: { topColor: { value: new T.Color(C.palette.skyTop) }, midColor: { value: new T.Color(C.palette.skyMiddle) }, horizon: { value: new T.Color(C.palette.horizon) } },
+      vertexShader: 'varying vec3 vDirection; void main(){vDirection=position; vec4 p=projectionMatrix*modelViewMatrix*vec4(position,1.0); gl_Position=p.xyww;}',
+      fragmentShader: 'uniform vec3 topColor;uniform vec3 midColor;uniform vec3 horizon;varying vec3 vDirection;void main(){float h=normalize(vDirection).y;vec3 c=mix(horizon,midColor,smoothstep(0.0,0.32,h));c=mix(c,topColor,smoothstep(0.24,0.9,h));gl_FragColor=vec4(c,1.0);}'
     });
+    var dome = new T.Mesh(new T.SphereGeometry(1100, 24, 16), material); dome.name = 'Amber coral violet sky'; dome.renderOrder = -10; dome.frustumCulled = false;
+    scene.add(dome); render.sky = dome;
+    var sun = render.makeFlare(C.palette.sun, 125); sun.material.fog = false;
+    sun.position.set(-780, 345, -520); scene.add(sun); render.sunSprite = sun;
   }
-  const rig = { mode: 'title', target: new T.Vector3(), heading: 0, distance: 9, height: 4.5, initialized: false };
-  const look = new T.Vector3(), desired = new T.Vector3(), focus = new T.Vector3();
-  const render = SF.render = { renderer, scene, camera, rig, sun, makeFlare, prepare,
-    batchActor, unbatchActor, addVehicleLight,
-    follow(position, heading, dt) {
-      rig.mode = 'follow'; rig.target.copy(position); rig.heading = heading;
-      desired.set(position.x - Math.sin(heading) * rig.distance, position.y + rig.height, position.z - Math.cos(heading) * rig.distance);
-      focus.set(position.x, position.y + 1.5, position.z);
-      const alpha = 1 - Math.exp(-6 * Math.min(dt, 0.1));
-      if (!rig.initialized) { camera.position.copy(desired); look.copy(focus); rig.initialized = true; }
-      camera.position.lerp(desired, alpha); look.lerp(focus, alpha); camera.lookAt(look);
-      sun.target.position.copy(position); sun.position.set(position.x - 160, position.y + 145, position.z - 220);
-    },
-    titleSweep(seconds) {
-      camera.position.set(-315 + Math.sin(seconds * 0.045) * 85, 83 + Math.sin(seconds * 0.06) * 8, -345 + Math.cos(seconds * 0.045) * 30);
-      camera.lookAt(-190, 8, -125); sun.target.position.set(-220, 0, -125); sun.position.set(-380, 145, -345);
-    }
+  render.init = function () {
+    if (render.ready) return render;
+    var renderer;
+    try { renderer = new T.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' }); }
+    catch (e) { error('This browser could not start WebGL. Enable hardware acceleration or try a WebGL-capable browser.'); return null; }
+    render.renderer = renderer;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, tuning.pixelRatioCap));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = tuning.exposure;
+    if ('outputColorSpace' in renderer && T.SRGBColorSpace) renderer.outputColorSpace = T.SRGBColorSpace;
+    else renderer.outputEncoding = T.sRGBEncoding;
+    renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
+    renderer.setClearColor(C.palette.horizon);
+    renderer.domElement.setAttribute('aria-label', 'Golden hour over Solano Bay');
+    document.getElementById('game-container').appendChild(renderer.domElement);
+    var scene = render.scene = new T.Scene();
+    scene.fog = new T.Fog(C.palette.horizon, tuning.fogNear, tuning.fogFar);
+    var camera = render.camera = new T.PerspectiveCamera(57, window.innerWidth / window.innerHeight, 0.2, tuning.farClip);
+    render.cameraRig = new T.Group(); render.cameraRig.name = 'Third person camera rig'; render.cameraRig.add(camera); scene.add(render.cameraRig);
+    camera.position.set(-650, 90, 340);
+    var fill = new T.HemisphereLight('#e8b4a0', '#4a3038', 0.52); scene.add(fill); render.hemisphere = fill;
+    var sun = render.sun = new T.DirectionalLight(C.palette.sun, 2.6); sun.castShadow = true;
+    sun.shadow.mapSize.set(tuning.shadowMapSize, tuning.shadowMapSize);
+    sun.shadow.camera.left = -145; sun.shadow.camera.right = 145; sun.shadow.camera.top = 145; sun.shadow.camera.bottom = -145;
+    sun.shadow.camera.near = 1; sun.shadow.camera.far = 430; sun.shadow.bias = -0.00025; sun.shadow.normalBias = 0.045; sun.shadow.radius = 2;
+    scene.add(sun); scene.add(sun.target);
+    sky(scene); SF.world.build(scene);
+    render.ready = true;
+    renderer.domElement.addEventListener('webglcontextlost', function (event) {
+      event.preventDefault(); render.stop(); error('The graphics context was interrupted. Reload the city to restore the view.');
+    });
+    renderer.domElement.addEventListener('webglcontextrestored', function () { error('Graphics are available again. Reload to rebuild the city safely.'); });
+    window.addEventListener('resize', render.resize);
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { resumeAfterHidden = render.running; render.stop(); }
+      else if (resumeAfterHidden) { resumeAfterHidden = false; render.start(); }
+    });
+    render.titleSweep(0); return render;
   };
-  const sunDisc = makeFlare(0xffcf86, 115); sunDisc.position.set(-650, 260, -1100); scene.add(sunDisc);
-  function resize() { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); }
-  addEventListener('resize', resize);
+  render.resize = function () {
+    if (!render.ready) return;
+    render.camera.aspect = window.innerWidth / Math.max(window.innerHeight, 1); render.camera.updateProjectionMatrix();
+    render.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, tuning.pixelRatioCap));
+    render.renderer.setSize(window.innerWidth, window.innerHeight);
+  };
+  render.titleSweep = function (time) {
+    var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var a = calm ? 0 : time * 0.025;
+    render.camera.position.set(-635 + Math.sin(a) * 75, 66 + Math.sin(a * 0.6) * 12, 285 + Math.cos(a) * 95);
+    target.set(-440, 10, 195 + Math.sin(a * 0.4) * 40); render.camera.lookAt(target);
+  };
+  // heading=0 looks along +Z; pass a THREE.Vector3 or plain {x,y,z}.
+  render.follow = function (position, heading, dt, speed) {
+    render.mode = 'follow';
+    var distance = tuning.cameraDistance + Math.min(Math.abs(speed || 0) * 0.07, 4);
+    desired.set(position.x - Math.sin(heading) * distance, position.y + tuning.cameraHeight, position.z - Math.cos(heading) * distance);
+    var alpha = 1 - Math.exp(-tuning.cameraSmoothing * Math.min(Math.max(dt, 0), 0.1));
+    render.camera.position.lerp(desired, alpha);
+    target.set(position.x + Math.sin(heading) * 3, position.y + 1.3, position.z + Math.cos(heading) * 3);
+    render.camera.lookAt(target);
+  };
+  render.update = function (dt, elapsed) {
+    if (!render.ready) return;
+    if (render.mode === 'title') render.titleSweep(elapsed);
+    SF.world.update(elapsed, dt);
+    // Snap the shadow footprint to texels to reduce crawling during camera motion.
+    var unit = 290 / tuning.shadowMapSize;
+    var x = Math.round(target.x / unit) * unit, z = Math.round(target.z / unit) * unit;
+    render.sun.target.position.set(x, 0, z); render.sun.position.copy(render.sun.target.position).add(sunOffset);
+    render.sky.position.copy(render.camera.position);
+    render.renderer.render(render.scene, render.camera);
+  };
+  function tick(time) {
+    if (!render.running) return;
+    var dt = lastTime ? Math.min((time - lastTime) / 1000, 0.1) : 0; lastTime = time; render.elapsed += dt;
+    render.update(dt, render.elapsed); render.frame = requestAnimationFrame(tick);
+  }
+  render.start = function () { if (render.ready && !render.running) { render.running = true; lastTime = 0; render.frame = requestAnimationFrame(tick); } };
+  render.stop = function () { render.running = false; cancelAnimationFrame(render.frame); lastTime = 0; };
+  // Only supply the title-view loop while the later runtime/main modules are absent.
+  window.addEventListener('DOMContentLoaded', function () {
+    if (!SF.runtime && !render.ready && render.init()) render.start();
+  });
 }());

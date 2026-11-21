@@ -1,44 +1,35 @@
-(() => {
-  const SF = globalThis.SF ||= {};
-  const down = new Set(), edges = new Set();
-  const input = SF.input = {
-    locked: false, yaw: 0, pitch: 0, mouseDown: false,
-    isDown: code => down.has(code),
-    pressed: code => edges.delete(code),
-    endFrame: () => edges.clear(),
-    lock: (element = document.querySelector('canvas')) => {
-      try { element?.requestPointerLock?.()?.catch?.(() => {}); } catch {}
-    }
+(function () {
+  'use strict';
+  const SF = window.SF = window.SF || {};
+  const held = new Set(), edges = new Set();
+  SF.input = {
+    locked: false, yaw: 0, pitch: 0,
+    isDown(code) { return held.has(code); },
+    pressed(code) { const yes = edges.has(code); edges.delete(code); return yes; },
+    edge(code) { return this.pressed(code); },
+    endFrame() { edges.clear(); },
+    clear() { held.clear(); edges.clear(); },
+    lock() { const canvas = SF.renderer?.domElement || document.querySelector('canvas'); const p = canvas?.requestPointerLock?.(); p?.catch?.(() => {}); },
+    unlock() { document.exitPointerLock?.(); }
   };
-  function release() {
-    down.clear();
-    edges.clear();
-    input.mouseDown = false;
-  }
-  window.addEventListener('keydown', event => {
-    if (!down.has(event.code) && !event.repeat) edges.add(event.code);
-    down.add(event.code);
-    if (SF.state?.mode === 'play' && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
+  window.addEventListener('keydown', e => {
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName)) return;
+    if (!held.has(e.code) && !e.repeat) edges.add(e.code);
+    held.add(e.code);
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   });
-  window.addEventListener('keyup', event => down.delete(event.code));
-  window.addEventListener('blur', release);
-  document.addEventListener('pointerlockchange', () => {
-    input.locked = Boolean(document.pointerLockElement);
-    if (!input.locked) release();
+  window.addEventListener('keyup', e => held.delete(e.code));
+  window.addEventListener('blur', () => SF.input.clear());
+  document.addEventListener('pointerlockchange', () => { SF.input.locked = !!document.pointerLockElement; });
+  document.addEventListener('mousemove', e => {
+    if (!SF.input.locked) return;
+    SF.input.yaw -= e.movementX * 0.0022;
+    SF.input.pitch = Math.max(-1.05, Math.min(0.72, SF.input.pitch - e.movementY * 0.0022));
   });
-  document.addEventListener('mousemove', event => {
-    if (!input.locked) return;
-    input.yaw -= event.movementX * 0.0025;
-    input.pitch = Math.max(-1.2, Math.min(1.2, input.pitch - event.movementY * 0.0025));
+  window.addEventListener('mousedown', e => {
+    const code = 'Mouse' + e.button;
+    if (!held.has(code)) edges.add(code);
+    held.add(code);
   });
-  document.addEventListener('mousedown', event => {
-    if (!input.locked) return;
-    down.add('Mouse' + event.button);
-    edges.add('Mouse' + event.button);
-    if (event.button === 0) input.mouseDown = true;
-  });
-  document.addEventListener('mouseup', event => {
-    down.delete('Mouse' + event.button);
-    if (event.button === 0) input.mouseDown = false;
-  });
+  window.addEventListener('mouseup', e => held.delete('Mouse' + e.button));
 })();

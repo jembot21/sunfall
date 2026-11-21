@@ -1,101 +1,133 @@
-(() => {
-  const SF = globalThis.SF ||= {};
-  function boot() {
-    const world = SF.world;
-    const scene = SF.render?.scene || world?.scene;
-    world?.build?.(scene);
-    for (const system of ['render', 'player', 'vehicles', 'traffic', 'peds', 'police', 'weapons']) {
-      SF[system]?.init?.(scene);
-    }
-    const canvas = SF.render?.renderer?.domElement;
-    if (canvas) document.getElementById('canvas-container').appendChild(canvas);
-    const newGame = () => {
-      SF.save.clear();
-      start(null);
-    };
-    function start(saved) {
-      SF.audio.unlock();
-      SF.runtime.start(saved);
-      menu.hidden = true;
-      menu.style.display = 'none';
-      SF.input.lock(canvas);
-    }
-    const actions = [
-      ['New Game', 'new-game', newGame],
-      ['Continue', 'continue', () => { const saved = SF.save.load(); if (saved) start(saved); }],
-      ['How to Play', 'how-to-play', () => { help.hidden = !help.hidden; }]
-    ];
-    const buttons = [...document.querySelectorAll('button')];
-    const find = (label, id) => document.getElementById(id)
-      || buttons.find(button => button.textContent.trim().toLowerCase() === label.toLowerCase());
-    const existing = find('New Game', 'new-game');
-    const menu = document.querySelector('#start-menu, #menu, [data-start-menu]')
-      || existing?.parentElement || document.createElement('section');
-    if (!menu.isConnected) {
-      Object.assign(menu.style, {
-        position: 'fixed', zIndex: '10', top: '18%', left: '8%',
-        padding: '1.4rem', color: '#fff', background: '#171725',
-        fontFamily: 'system-ui, sans-serif'
-      });
-      const title = document.createElement('h1');
-      title.textContent = 'Sunfall';
-      menu.append(title);
-      document.body.append(menu);
-    }
-    const help = document.createElement('p');
-    help.hidden = true;
-    help.textContent = 'WASD moves or drives. Mouse looks around. P pauses. M starts the next story job. Keys 1–4 start activities when no job is active.';
-    menu.append(help);
-    for (const [label, id, action] of actions) {
-      const button = find(label, id) || document.createElement('button');
-      if (!button.isConnected) {
-        button.id = id;
-        button.textContent = label;
-        menu.insertBefore(button, help);
-      }
-      if (id === 'continue') button.disabled = !SF.save.saved;
-      button.addEventListener('click', action);
-    }
-    canvas?.addEventListener('click', () => {
-      if (SF.state.mode === 'play') SF.input.lock(canvas);
-    });
-    const shot = new URLSearchParams(location.search).get('shot');
-    let appliedShot = false, last, orbit = 0;
-    function frame(now) {
-      const dt = last === undefined ? 0 : Math.min((now - last) / 1000, 0.05);
-      last = now;
-      SF.runtime.step(dt);
-      if (shot && !appliedShot && typeof SF.shots?.apply === 'function') {
-        SF.shots.apply(shot);
-        appliedShot = true;
-      }
-      const pos = SF.runtime.position();
-      const rig = SF.render;
-      const camera = rig?.camera || world?.camera || SF.camera;
-      if (!appliedShot && camera?.position && pos) {
-        if (SF.state.mode === 'menu') {
-          orbit += dt * 0.21;
-          if (rig?.titleSweep) rig.titleSweep(orbit);
-          else {
-            camera.position.set(pos.x + 52 * Math.cos(orbit), pos.y + 29, pos.z + 52 * Math.sin(orbit));
-            camera.lookAt(pos.x, pos.y + 2, pos.z);
-          }
-        } else if (SF.state.mode === 'play') {
-          const yaw = SF.input.yaw, pitch = SF.input.pitch;
-          const radius = SF.runtime.vehicle() ? 12 : 6;
-          camera.position.set(pos.x + radius * Math.sin(yaw), pos.y + 3 + radius * Math.sin(pitch), pos.z + radius * Math.cos(yaw));
-          camera.lookAt(pos.x, pos.y + 1.5, pos.z);
-        }
-      }
-      SF.shots?.updateCamera?.();
-      const renderer = rig?.renderer;
-      const renderScene = rig?.scene || world?.scene || scene;
-      rig?.prepare?.();
-      if (renderer && renderScene && camera) renderer.render(renderScene, camera);
-      requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
+(function () {
+  'use strict';
+  const SF = window.SF = window.SF || {};
+  let booted = false, last = 0, renderer, scene, camera, shotApplied = false, controls;
+  const shotName = new URLSearchParams(window.location.search).get('shot');
+  function systemInit(name) {
+    const s = SF[name];
+    if (typeof s?.init === 'function') return s.init.length ? s.init(scene) : s.init();
+    if (typeof s?.build === 'function') return s.build(scene);
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
-  else boot();
+  function mode() { return SF.state?.mode || 'menu'; }
+  function start(continuing) {
+    SF.audio?.unlock();
+    if (SF.player.vehicle) SF.player.exit?.();
+    SF.phone?.clear();
+    if (!continuing) {
+      SF.save?.clear(); SF.missions?.reset();
+      SF.player.cash = 200; SF.player.health = 100;
+      SF.player.reset?.(); SF.police?.reset?.();
+      SF.police.wanted = 0;
+      SF.player.busted = false;
+      for (const slot of SF.weapons?.slots || []) slot.unlocked = slot.id === 'fists';
+      SF.weapons?.equip('fists');
+      const spawn = SF.world.spawn;
+      if (spawn && SF.player.mesh) { SF.player.mesh.position.set(spawn.x, spawn.y, spawn.z); SF.player.mesh.rotation.y = spawn.heading || 0; }
+    } else SF.save?.load();
+    SF.runtime.setMode('play');
+    if (controls) { controls.hidden = true; controls.style.display = 'none'; }
+    document.getElementById('sf-menu')?.setAttribute('hidden', '');
+    SF.input?.lock();
+  }
+  function buildMenu() {
+    const old = document.getElementById('start-menu') || document.getElementById('menu');
+    // Bind existing semantic buttons when a HUD/template already supplies them.
+    const bind = (selectors, action) => {
+      for (const selector of selectors) {
+        const el = document.querySelector(selector);
+        if (el) { el.addEventListener('click', action); return el; }
+      }
+      return null;
+    };
+    const newButton = bind(['#new-game', '#newGame', '[data-action="new-game"]'], () => start(false));
+    if (newButton) {
+      const cont = bind(['#continue', '#continue-game', '#continueGame', '[data-action="continue"]'], () => start(true));
+      if (cont) cont.disabled = !SF.save?.saved;
+      bind(['#how-to-play', '#howToPlay', '[data-action="how-to-play"]'], () => showHelp());
+      controls = old;
+      return;
+    }
+    controls = document.createElement('section'); controls.id = 'sf-menu';
+    Object.assign(controls.style, { position: 'fixed', inset: '0', zIndex: '30', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', padding: '7vw', color: '#fff0d0', background: 'linear-gradient(90deg,rgba(13,24,32,.85),transparent)', fontFamily: 'system-ui,sans-serif' });
+    const eyebrow = document.createElement('p'); eyebrow.textContent = 'SOLANO BAY · A SUNLIT CRIME STORY'; controls.appendChild(eyebrow);
+    const title = document.createElement('h1'); title.textContent = 'SUNFALL'; title.style.cssText = 'font-size:clamp(56px,10vw,140px);letter-spacing:-.06em;margin:0 0 24px;line-height:1'; controls.appendChild(title);
+    for (const [label, action, disabled] of [ ['New Game', () => start(false), false], ['Continue', () => start(true), !SF.save?.saved], ['How to Play', showHelp, false] ]) {
+      const b = document.createElement('button'); b.textContent = label; b.disabled = disabled;
+      b.style.cssText = 'font:600 18px system-ui;margin:5px 0;padding:12px 28px;background:#ffcf8b;border:0;border-radius:3px;color:#182e36;cursor:pointer';
+      b.addEventListener('click', action); controls.appendChild(b);
+    }
+    document.body.appendChild(controls);
+  }
+  function showHelp() {
+    let panel = document.getElementById('sf-help');
+    if (!panel) {
+      panel = document.createElement('section'); panel.id = 'sf-help';
+      panel.style.cssText = 'position:fixed;inset:15%;z-index:60;background:#142630;color:#fff0d0;padding:30px;font:18px/1.6 system-ui;overflow:auto';
+      const text = document.createElement('p'); text.textContent = 'WASD move / drive · Mouse look · Shift sprint · Space brake · E enter / exit a vehicle · Mouse click fire · P or Escape pause · R SOLANO FM in a car · M start the next story job · G take a nearby side job. Follow the gold marker to Marco Reyes in Palma Strand. Reach each marked objective to progress. Lose wanted stars before returning to the crew. Story payouts save automatically.';
+      panel.appendChild(text);
+      const close = document.createElement('button'); close.textContent = 'Back'; close.addEventListener('click', () => { panel.hidden = true; }); panel.appendChild(close); document.body.appendChild(panel);
+    }
+    panel.hidden = false;
+  }
+  function cameraFrame(dt, now) {
+    if (!camera) return;
+    const p = SF.player?.vehicle?.mesh?.position || SF.player?.mesh?.position || SF.player?.position;
+    if (mode() === 'menu' || !p) {
+      const a = now * 0.000055;
+      camera.position.set(Math.sin(a) * 220, 110, Math.cos(a) * 220); camera.lookAt(0, 0, 0); return;
+    }
+    if (SF.shots?.active || shotApplied) return;
+    const yaw = SF.input?.yaw || 0, pitch = SF.input?.pitch || 0;
+    const radius = SF.player?.vehicle || SF.player?.inVehicle ? 10 : 6;
+    const desired = new THREE.Vector3(p.x + Math.sin(yaw) * radius, p.y + 3.3 - Math.sin(pitch) * 4, p.z + Math.cos(yaw) * radius);
+    camera.position.lerp(desired, 1 - Math.exp(-dt * 8)); camera.lookAt(p.x, p.y + 1.5, p.z);
+  }
+  function frame(now) {
+    const dt = Math.min((now - (last || now)) / 1000, 0.1); last = now;
+    SF.runtime.update(dt);
+    if (shotName && !shotApplied && SF.shots?.apply) { SF.shots.apply(shotName); shotApplied = true; }
+    cameraFrame(dt, now);
+    renderer?.render(scene, camera);
+    if (controls && mode() !== 'menu') { controls.hidden = true; controls.style.display = 'none'; }
+    if ((mode() === 'pause' || mode() === 'wasted' || mode() === 'busted') && !document.getElementById('sf-resume')) {
+      const b = document.createElement('button'); b.id = 'sf-resume'; b.textContent = mode() === 'pause' ? 'Resume' : 'Return to safehouse';
+      b.style.cssText = 'position:fixed;left:40%;top:45%;z-index:80;padding:20px;font:20px system-ui';
+      b.addEventListener('click', () => { if (mode() !== 'pause') { SF.player.health = 100; SF.police?.reset?.(); SF.player.busted = false; SF.save?.load(); } SF.runtime.setMode('play'); SF.input?.lock(); b.remove(); }); document.body.appendChild(b);
+    }
+    if (mode() === 'play') document.getElementById('sf-resume')?.remove();
+    window.requestAnimationFrame(frame);
+  }
+  SF.main = {
+    start,
+    boot() {
+      if (booted) return; booted = true;
+      SF.render?.init?.();
+      scene = SF.render?.scene || SF.scene || new THREE.Scene();
+      SF.scene = scene;
+      if (!SF.city?.root) {
+        if (typeof SF.world?.build === 'function') SF.world.build(scene);
+        else SF.world?.init?.(scene);
+      }
+      renderer = SF.render?.renderer || SF.world?.renderer || SF.renderer;
+      camera = SF.render?.camera || SF.world?.camera || SF.camera;
+      if (!camera) camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 1800);
+      if (!renderer) { renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); renderer.setSize(window.innerWidth, window.innerHeight); document.body.appendChild(renderer.domElement); }
+      SF.scene = scene; SF.renderer = renderer; SF.camera = camera;
+      if (!SF.city?.root) systemInit('city');
+      for (const key of ['vehicles', 'player', 'traffic', 'peds', 'police', 'weapons', 'missions', 'hud', 'ui']) systemInit(key);
+      const spawn = SF.world.spawn;
+      if (spawn && SF.player.mesh) SF.player.mesh.position.set(spawn.x, spawn.y, spawn.z);
+      if (SF.weapons) {
+        const previousShot = SF.weapons.onShot;
+        SF.weapons.onShot = event => { if (typeof previousShot === 'function') previousShot(event); SF.audio?.gunshot(); };
+      }
+      buildMenu();
+      window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+      window.addEventListener('beforeunload', () => { if (mode() === 'play') SF.save?.store(); });
+      window.requestAnimationFrame(frame);
+      return { scene, camera, renderer };
+    }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => SF.main.boot(), { once: true });
+  else SF.main.boot();
 })();

@@ -1,183 +1,127 @@
-(function (SF) {
+(function () {
   'use strict';
-  const T = globalThis.THREE;
-  const keys = Object.create(null);
-  const palettes = {
-    skins: [0x754a39, 0x9b6448, 0xc28c67, 0xe1b48e, 0x573c34],
-    shirts: [0xd94c3b, 0x287b77, 0xd3a13b, 0x3c5978, 0xe8dfc8, 0x793c78, 0x65a16d],
-    pants: [0x273548, 0x393a39, 0x59615d, 0x725642, 0x334b50]
+  const SF = window.SF = window.SF || {};
+  const T = window.THREE;
+  const A = SF.actors = SF.actors || {};
+  const geometries = {}, materials = {};
+  A.geometry = (kind = 'box') => geometries[kind] || (geometries[kind] = kind === 'sphere' ? new T.SphereGeometry(1, 10, 8) : kind === 'cylinder' ? new T.CylinderGeometry(1, 1, 1, 12) : new T.BoxGeometry(1, 1, 1));
+  A.material = (color, emissive = false) => {
+    const key = color + ':' + emissive;
+    return materials[key] || (materials[key] = new T.MeshStandardMaterial({ color, roughness: .8, emissive: emissive ? color : 0, emissiveIntensity: emissive ? 2 : 0 }));
   };
-  // Warm the finite actor palette before any pedestrian/figure loop.
-  [...Object.values(palettes).flat(), 0xe1b05b, 0x273849, 0xb87a55, 0x29201e,
-    0x261d1a, 0x24272a, 0x24394d, 0x171f28, 0x9a6849].forEach(color => SF.assets.standard({ color, roughness: 0.72 }));
+  A.part = (parent, size, position, color, kind, emissive) => {
+    const m = new T.Mesh(A.geometry(kind), A.material(color, emissive));
+    m.scale.set(...size); m.position.set(...position); parent.add(m); return m;
+  };
+  A.scene = () => SF.render && SF.render.scene;
+  A.rand = () => {
+    const r=SF.random;let value=typeof r==='function'?r():r && typeof r.float==='function'?r.float(0,1):r && typeof r.next==='function'?r.next():r && typeof r.random==='function'?r.random():Math.random();
+    value=Number(value);return Number.isFinite(value)?Math.max(0,Math.min(.999999999,value)):Math.random();
+  };
+  A.pick = list => list[Math.floor(A.rand() * list.length) % list.length];
+  A.bounds = () => {
+    const b = (SF.city && SF.city.bounds) || (SF.world && SF.world.bounds) || (SF.CONFIG && SF.CONFIG.bounds) || {};
+    const size = Number((SF.CONFIG || {}).CITY_SIZE) || 1200;
+    return { minX: Number.isFinite(b.minX) ? b.minX : -size / 2, maxX: Number.isFinite(b.maxX) ? b.maxX : size / 2, minZ: Number.isFinite(b.minZ) ? b.minZ : -size / 2, maxZ: Number.isFinite(b.maxZ) ? b.maxZ : size / 2 };
+  };
+  A.clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  A.angle = v => Math.atan2(Math.sin(v), Math.cos(v));
+  A.position = p => {
+    p = p && (p.position || p);
+    return new T.Vector3(Number(p && p.x) || 0, Number(p && p.y) || 0, Number(p && (p.z === undefined ? p[1] : p.z)) || 0);
+  };
+  A.grid = () => {
+    const city = SF.city || {}, world = SF.world || {};
+    const grid = city.streetGrid || city.grid || world.streetGrid || {};
+    const coords = list => Array.isArray(list) ? list.map(v => typeof v === 'number' ? v : Number(v.coordinate === undefined ? v.position : v.coordinate)).filter(Number.isFinite).sort((a,b) => a-b) : [];
+    let xs = coords(grid.x || grid.xs || city.streetX), zs = coords(grid.z || grid.zs || city.streetZ);
+    if (!xs.length || !zs.length) {
+      const streets = city.streets || world.streets || [];
+      if (Array.isArray(streets)) streets.forEach(s => { if (s.axis === 'x' && Number.isFinite(s.z)) zs.push(s.z); if (s.axis === 'z' && Number.isFinite(s.x)) xs.push(s.x); });
+    }
+    const b = A.bounds();
+    if (xs.length < 2) for (let x=b.minX+50;x<b.maxX;x+=80) xs.push(x);
+    if (zs.length < 2) for (let z=b.minZ+50;z<b.maxZ;z+=80) zs.push(z);
+    return { xs: [...new Set(xs)], zs: [...new Set(zs)] };
+  };
+  A.figure = (shirt = 0x3b6d81, skin = 0xc99470) => {
+    const root = new T.Group(), limbs = {};
+    A.part(root, [.52,.62,.28], [0,1.12,0], shirt);
+    A.part(root, [.31,.34,.3], [0,1.63,0], skin, 'sphere');
+    const joint = (name, pos, size, offset, color, parent = root) => {
+      const g = new T.Group(); g.position.set(...pos); parent.add(g); A.part(g,size,offset,color); limbs[name]=g; return g;
+    };
+    [-1,1].forEach((side,i) => {
+      const upper = joint('arm'+i,[side*.34,1.39,0],[.17,.33,.18],[0,-.165,0],shirt);
+      const fore = joint('forearm'+i,[0,-.32,0],[.14,.29,.15],[0,-.145,0],skin,upper);
+      joint('hand'+i,[0,-.29,0],[.15,.15,.16],[0,-.06,0],skin,fore);
+      const thigh = joint('leg'+i,[side*.15,.84,0],[.22,.41,.23],[0,-.205,0],0x28313d);
+      const shin = joint('shin'+i,[0,-.4,0],[.19,.36,.2],[0,-.18,0],0x28313d,thigh);
+      joint('foot'+i,[0,-.34,.065],[.22,.13,.36],[0,-.035,.055],0x242526,shin);
+    });
+    root.userData.arms = [limbs.arm0,limbs.arm1]; root.userData.limbs=limbs;
+    return root;
+  };
+  A.animateFigure = (mesh, phase, speed, time) => {
+    const l=mesh.userData.limbs, swing=Math.min(1,speed/4);
+    [0,1].forEach(i => {
+      const wave=Math.sin(phase+i*Math.PI);
+      l['arm'+i].rotation.x=-wave*.75*swing;
+      l['forearm'+i].rotation.x=-.12-Math.max(0,-wave)*.45*swing;
+      l['leg'+i].rotation.x=wave*.72*swing;
+      l['shin'+i].rotation.x=Math.max(0,-wave)*.85*swing;
+    });
+    mesh.scale.y=1+Math.sin(time*2.1)*.006*(1-swing);
+  };
+  const keys = new Set();
   const player = SF.player = {
-    mesh: null, health: 100, cash: 250, vehicle: null, speed: 0,
-    heading: 0, running: false, dead: false, keys, radius: 0.38,
-    position: T ? new T.Vector3() : { x: 0, y: 0, z: 0 },
-    velocity: T ? new T.Vector3() : null
-  };
-  // Actor modules use these adapters; the world owns the actual layout.
-  const helpers = player.helpers = {
-    palettes,
-    random() {
-      const r = SF.random;
-      const value = typeof r === 'function' ? r() :
-        r && typeof r.float === 'function' ? r.float(0, 1) :
-        r && typeof r.random === 'function' ? r.random() :
-        r && typeof r.next === 'function' ? r.next() : Math.random();
-      return Math.max(0, Math.min(0.999999, Number(value) || 0));
+    mesh:null, health:100, cash:150, vehicle:null, phase:0, time:0,
+    init(scene = A.scene(), spawn) {
+      if (this.mesh || !scene) return this;
+      this.mesh=A.figure(0xd4b07b); this.mesh.name='Sunfall player';
+      const source=spawn || (SF.world || {}).playerSpawn || (SF.city || {}).playerSpawn;
+      this.mesh.position.copy(A.position(source)); scene.add(this.mesh); return this;
     },
-    pick(list) { return list[Math.floor(helpers.random() * list.length)]; },
-    bounds() {
-      const b = SF.city && SF.city.bounds || SF.world && SF.world.bounds || {};
-      const c = SF.CONFIG || {};
-      const half = Number(c.CITY_SIZE || c.WORLD_SIZE || 1000) / 2;
-      return { minX: b.minX ?? b.min?.x ?? -half, maxX: b.maxX ?? b.max?.x ?? half,
-        minZ: b.minZ ?? b.min?.z ?? -half, maxZ: b.maxZ ?? b.max?.z ?? half };
+    get position() { return this.vehicle ? this.vehicle.mesh.position : this.mesh ? this.mesh.position : new T.Vector3(); },
+    damage(amount) { this.health=A.clamp(this.health-Math.max(0,amount),0,100); },
+    enter(car) {
+      if (!car || this.vehicle || car.locked || car.driver || !this.mesh || car.mesh.position.distanceTo(this.mesh.position)>5) return false;
+      if (SF.vehicles && !SF.vehicles.steal(car)) return false;
+      this.vehicle=car; car.driver=this; this.mesh.visible=false; return true;
     },
-    streets() {
-      const g = SF.city && (SF.city.streetGrid || SF.city.grid || SF.city.streets) ||
-        SF.world && (SF.world.streetGrid || SF.world.streets) || {};
-      const coords = a => Array.isArray(a) ? a.map(v => typeof v === 'number' ? v : v.coordinate ?? v.position ?? v.x ?? v.z).filter(Number.isFinite) : [];
-      let x = coords(g.x || g.xs || g.vertical || g.roadsX);
-      let z = coords(g.z || g.zs || g.horizontal || g.roadsZ);
-      if (Array.isArray(g)) {
-        x = g.filter(s => s.axis === 'z' || s.orientation === 'vertical').map(s => s.x ?? s.position?.x).filter(Number.isFinite);
-        z = g.filter(s => s.axis === 'x' || s.orientation === 'horizontal').map(s => s.z ?? s.position?.z).filter(Number.isFinite);
+    exit() {
+      if (!this.vehicle) return false;
+      const car=this.vehicle, exits=SF.vehicles.entryPoints(car), b=A.bounds();
+      const safe=exits.find(p => p.x>b.minX+1 && p.x<b.maxX-1 && p.z>b.minZ+1 && p.z<b.maxZ-1);
+      if (!safe || Math.abs(car.speed)>3) return false;
+      this.mesh.position.copy(safe); this.mesh.position.y=0; this.mesh.visible=true; car.driver=null; this.vehicle=null; return true;
+    },
+    update(dt, input = {}) {
+      if (!this.mesh) this.init(); if (!this.mesh) return;
+      dt=A.clamp(Number(dt)||0,0,.05); this.time+=dt;
+      if (this.vehicle) {
+        if (SF.vehicles) SF.vehicles.drive(this.vehicle,dt,{ throttle:input.throttle === undefined ? Number(keys.has('KeyW'))-Number(keys.has('KeyS')) : input.throttle, steer:input.steer === undefined ? Number(keys.has('KeyA'))-Number(keys.has('KeyD')) : input.steer, brake: input.brake || keys.has('Space') });
+        return;
       }
-      const b = helpers.bounds();
-      if (!x.length) for (let p = b.minX + 60; p < b.maxX - 30; p += 90) x.push(p);
-      if (!z.length) for (let p = b.minZ + 60; p < b.maxZ - 30; p += 90) z.push(p);
-      return { x: [...new Set(x)].sort((a, b) => a - b), z: [...new Set(z)].sort((a, b) => a - b) };
-    },
-    box(w, h, d, color, parent, x = 0, y = 0, z = 0) {
-      const m = new T.Mesh(SF.assets.box, SF.assets.standard({ color, roughness: 0.72 }));
-      m.scale.set(w, h, d);
-      m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
-      parent.add(m); return m;
-    },
-    figure(options = {}) {
-      const root = new T.Group();
-      const shirt = options.shirt ?? 0xe1b05b, pants = options.pants ?? 0x273849;
-      const skin = options.skin ?? 0xb87a55;
-      helpers.box(0.48, 0.59, 0.27, shirt, root, 0, 1.16, 0);
-      helpers.box(0.29, 0.32, 0.28, skin, root, 0, 1.64, 0);
-      helpers.box(0.31, 0.10, 0.29, options.hair ?? 0x29201e, root, 0, 1.82, -0.01);
-      const arms = [], legs = [];
-      for (const side of [-1, 1]) {
-        const arm = new T.Group(); arm.position.set(side * 0.32, 1.41, 0); root.add(arm);
-        helpers.box(0.16, 0.30, 0.18, shirt, arm, 0, -0.15, 0);
-        const elbow = new T.Group(); elbow.position.y = -0.30; arm.add(elbow);
-        helpers.box(0.14, 0.28, 0.15, skin, elbow, 0, -0.14, 0);
-        helpers.box(0.15, 0.14, 0.17, skin, elbow, 0, -0.34, 0);
-        arm.userData.elbow = elbow; arms.push(arm);
-        const leg = new T.Group(); leg.position.set(side * 0.135, 0.89, 0); root.add(leg);
-        helpers.box(0.21, 0.40, 0.23, pants, leg, 0, -0.20, 0);
-        const knee = new T.Group(); knee.position.y = -0.40; leg.add(knee);
-        helpers.box(0.19, 0.36, 0.21, pants, knee, 0, -0.18, 0);
-        helpers.box(0.22, 0.13, 0.35, 0x24272a, knee, 0, -0.40, 0.06);
-        leg.userData.knee = knee; legs.push(leg);
+      if (!this.health) return;
+      let x=Number(input.right || keys.has('KeyD'))-Number(input.left || keys.has('KeyA'));
+      let z=Number(input.forward || keys.has('KeyW'))-Number(input.backward || keys.has('KeyS'));
+      const length=Math.hypot(x,z), speed=length ? (input.run || keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7 : 3.5) : 0;
+      if (length) {
+        x/=length; z/=length;
+        const yaw=Number(input.cameraYaw)||0, dx=x*Math.cos(yaw)+z*Math.sin(yaw), dz=x*Math.sin(yaw)-z*Math.cos(yaw);
+        this.mesh.position.x+=dx*speed*dt; this.mesh.position.z+=dz*speed*dt;
+        this.mesh.rotation.y=Math.atan2(dx,dz);
       }
-      root.userData.arms = arms; root.userData.legs = legs;
-      root.userData.phase = helpers.random() * Math.PI * 2;
-      return root;
-    },
-    animate(mesh, dt, speed, running = false) {
-      const u = mesh.userData;
-      u.phase += dt * (speed > 0.1 ? running ? 12 : 8 : 1.8);
-      const amplitude = speed > 0.1 ? running ? 0.9 : 0.55 : 0.025;
-      u.arms.forEach((a, i) => {
-        a.rotation.x = Math.sin(u.phase + i * Math.PI) * amplitude;
-        a.userData.elbow.rotation.x = -0.12 - (running ? 0.55 : 0.12);
-      });
-      u.legs.forEach((l, i) => {
-        const wave = Math.sin(u.phase + i * Math.PI);
-        l.rotation.x = -wave * amplitude;
-        l.userData.knee.rotation.x = Math.max(0, wave) * amplitude * 0.9;
-      });
-      mesh.scale.y = 1 + Math.sin(u.phase) * (speed > 0.1 ? 0.008 : 0.006);
-    },
-    clamp(position, margin = 1) {
-      const b = helpers.bounds();
-      position.x = Math.max(b.minX + margin, Math.min(b.maxX - margin, position.x));
-      position.z = Math.max(b.minZ + margin, Math.min(b.maxZ - margin, position.z));
-      return position;
+      const b=A.bounds(); this.mesh.position.x=A.clamp(this.mesh.position.x,b.minX+1,b.maxX-1); this.mesh.position.z=A.clamp(this.mesh.position.z,b.minZ+1,b.maxZ-1);
+      this.phase+=speed*dt*2.4; A.animateFigure(this.mesh,this.phase,speed,this.time);
     }
   };
-  let bound = false;
-  player.init = function (options = {}) {
-    if (player.mesh) return player;
-    if (!T || !SF.render?.scene) return player;
-    player.mesh = helpers.figure(); player.mesh.name = 'Sunfall player';
-    const spawn = options.position || SF.world?.playerSpawn || SF.city?.playerSpawn || SF.world?.spawn;
-    if (spawn) {
-      player.position.set(spawn.x ?? 0, spawn.y ?? 0, spawn.z ?? 0);
-      player.heading = options.heading ?? spawn.heading ?? player.heading;
-      if (SF.input && Number.isFinite(player.heading)) SF.input.yaw = player.heading + Math.PI;
-    }
-    player.mesh.position.copy(player.position); SF.render.scene.add(player.mesh);
-    player.mesh.rotation.y = player.heading;
-    if (!bound && typeof window !== 'undefined') {
-      bound = true;
-      window.addEventListener('keydown', e => {
-        keys[e.code] = true;
-        if (e.code === 'KeyE' && !e.repeat) player.interact();
-      });
-      window.addEventListener('keyup', e => { keys[e.code] = false; });
-      window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
-    }
-    return player;
-  };
-  player.enterVehicle = function (car) {
-    if (!car || car.locked || car.driver === player || player.dead) return false;
-    if (player.position.distanceTo(car.mesh.position) > 4.5) return false;
-    SF.vehicles?.steal(car);
-    car.driver = player; player.vehicle = car; player.mesh.visible = false;
-    player.position.copy(car.mesh.position); return true;
-  };
-  player.exitVehicle = function () {
-    const car = player.vehicle; if (!car) return false;
-    // Refuse a moving exit rather than launching the player through traffic.
-    if (Math.abs(car.speed) > 4) return false;
-    const choices = SF.vehicles.entryPoints(car);
-    const b = helpers.bounds();
-    const p = choices.find(p => p.x > b.minX + 1 && p.x < b.maxX - 1 && p.z > b.minZ + 1 && p.z < b.maxZ - 1);
-    if (!p) return false;
-    player.position.copy(p); player.position.y = 0;
-    car.driver = null; player.vehicle = null; player.mesh.visible = true;
-    player.mesh.position.copy(player.position); return true;
-  };
-  player.interact = function () {
-    if (player.vehicle) return player.exitVehicle();
-    const car = SF.vehicles?.nearest(player.position, 4.5);
-    return car ? player.enterVehicle(car) : false;
-  };
-  player.damage = function (amount) {
-    player.health = Math.max(0, player.health - Math.max(0, amount));
-    player.dead = player.health === 0;
-    return player.health;
-  };
-  player.addCash = amount => (player.cash = Math.max(0, player.cash + amount));
-  player.update = function (dt, input = {}) {
-    player.init(); if (!player.mesh) return;
-    dt = Math.min(0.05, Math.max(0, dt || 0));
-    if (player.vehicle) {
-      player.position.copy(player.vehicle.mesh.position);
-      player.speed = Math.abs(player.vehicle.speed); return;
-    }
-    player.running = !!(input.run ?? (keys.ShiftLeft || keys.ShiftRight));
-    let x = input.x ?? ((keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0));
-    let z = input.z ?? ((keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0));
-    const n = Math.hypot(x, z); if (n > 1) { x /= n; z /= n; }
-    const camera = SF.render.camera;
-    const yaw = input.cameraYaw ?? (camera ? Math.atan2(camera.position.x - player.position.x, camera.position.z - player.position.z) : 0);
-    const speed = player.dead ? 0 : player.running ? 7.5 : 3.4;
-    player.velocity.set((x * Math.cos(yaw) - z * Math.sin(yaw)) * speed, 0,
-      (-x * Math.sin(yaw) - z * Math.cos(yaw)) * speed);
-    player.position.addScaledVector(player.velocity, dt); helpers.clamp(player.position, player.radius);
-    player.speed = player.velocity.length();
-    if (player.speed > 0.1) player.heading = Math.atan2(player.velocity.x, player.velocity.z);
-    player.mesh.position.copy(player.position); player.mesh.rotation.y = player.heading;
-    helpers.animate(player.mesh, dt, player.speed, player.running);
-  };
-})(globalThis.SF = globalThis.SF || {});
+  window.addEventListener('keydown',e => {
+    if (/INPUT|TEXTAREA|SELECT/.test((e.target || {}).tagName)) return;
+    keys.add(e.code);
+    if(e.code==='KeyE' && !e.repeat) { if(player.vehicle) player.exit(); else if(SF.vehicles && player.mesh) player.enter(SF.vehicles.nearest(player.position,5)); }
+  });
+  window.addEventListener('keyup',e => keys.delete(e.code));
+  window.addEventListener('blur',() => keys.clear());
+})();

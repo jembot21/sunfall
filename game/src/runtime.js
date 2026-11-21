@@ -1,94 +1,54 @@
-(() => {
-  const SF = globalThis.SF ||= {};
-  const state = SF.state = {
-    mode: 'menu', elapsed: 0, district: null, cash: 0, storyDone: 0,
-    unlocks: [], safehouse: null
-  };
-  function update(system, ...args) {
-    const tick = system?.update || system?.step;
-    if (typeof tick === 'function') tick.apply(system, args);
+(function () {
+  'use strict';
+  const SF = window.SF = window.SF || {};
+  SF.state = { mode: 'menu', elapsed: 0, district: 'Palma Strand', currentDistrict: null };
+  const order = ['player', 'vehicles', 'traffic', 'peds', 'weapons', 'police', 'missions', 'phone', 'world', 'audio'];
+  function districtAt(p) {
+    const city = SF.city;
+    if (typeof city?.districtAt === 'function') return city.districtAt(p.x, p.z);
+    if (typeof city?.getDistrict === 'function') return city.getDistrict(p.x, p.z);
+    const districts = city?.districts || SF.CONFIG?.districts || SF.CONFIG?.DISTRICTS || SF.districts || [];
+    const list = Array.isArray(districts) ? districts : Object.values(districts);
+    return list.find(d => {
+      const b = d.bounds;
+      return b && p.x >= (b.minX ?? b.x1) && p.x <= (b.maxX ?? b.x2) && p.z >= (b.minZ ?? b.z1) && p.z <= (b.maxZ ?? b.z2);
+    }) || null;
   }
-  const runtime = SF.runtime = {
-    vehicle() {
-      const player = SF.player;
-      return player?.vehicle || player?.inVehicle || SF.vehicles?.current || null;
+  SF.runtime = {
+    accumulator: 0, fixedStep: 1 / 60,
+    setMode(mode) {
+      if (!['menu', 'play', 'pause', 'busted', 'wasted'].includes(mode)) return;
+      SF.state.mode = mode;
+      if (SF.render) SF.render.mode = mode;
+      if (mode !== 'play') SF.input?.unlock();
+      SF.ui?.setMode?.(mode); SF.hud?.setMode?.(mode);
     },
-    position() {
-      const car = this.vehicle();
-      return car?.mesh?.position || car?.position || SF.player?.mesh?.position || SF.player?.position;
-    },
-    wanted() {
-      const police = SF.police;
-      return Number(police?.stars ?? police?.wanted?.stars ?? police?.wantedLevel ?? police?.wanted) || 0;
-    },
-    start(save = null) {
-      const spawn = SF.player?.mesh?.position || SF.player?.position;
-      const home = SF.world?.safehouse || SF.world?.spawn || spawn;
-      state.safehouse = save?.safehouse ?? (home ? { x: home.x, y: home.y, z: home.z } : null);
-      const start = save?.safehouse || SF.world?.spawn;
-      if (start) {
-        SF.player?.position?.set?.(start.x, start.y ?? 0, start.z);
-        SF.player?.mesh?.position?.set?.(start.x, start.y ?? 0, start.z);
-        const heading = Number.isFinite(start.heading) ? start.heading : SF.player?.heading;
-        if (Number.isFinite(heading) && SF.player) {
-          SF.player.heading = heading;
-          if (SF.player.mesh) SF.player.mesh.rotation.y = heading;
-          if (SF.input) SF.input.yaw = heading + Math.PI;
-        }
+    tick(dt) {
+      SF.state.elapsed += dt;
+      if (SF.render) SF.render.elapsed = SF.state.elapsed;
+      for (const key of order) SF[key]?.update?.(dt, SF.state.elapsed);
+      const p = SF.player?.mesh?.position || SF.player?.position;
+      if (p) {
+        const d = districtAt(p);
+        if (d) { SF.state.currentDistrict = d; SF.state.district = typeof d === 'string' ? d : d.name; }
       }
-      state.elapsed = 0;
-      state.cash = save?.cash ?? 0;
-      if (SF.player) SF.player.cash = state.cash;
-      state.storyDone = save?.storyDone ?? 0;
-      state.unlocks = Array.isArray(save?.unlocks) ? [...save.unlocks] : [];
-      SF.phone.clear();
-      SF.missions.reset(state.storyDone, state.cash);
-      SF.missions.startStory();
-      state.mode = 'play';
-      SF.save.store();
+      if (SF.player?.health <= 0) this.setMode('wasted');
+      else if (SF.player?.busted || SF.police?.busted) this.setMode('busted');
     },
-    step(dt) {
-      dt = Math.min(0.05, Math.max(0, dt));
-      if (SF.input.pressed('Escape') || SF.input.pressed('KeyP')) {
-        if (state.mode === 'play') {
-          state.mode = 'pause';
-          document.exitPointerLock?.();
-        } else if (state.mode === 'pause') state.mode = 'play';
+    update(dt) {
+      dt = Math.min(0.1, Math.max(0, Number(dt) || 0));
+      let stepped = false;
+      if (SF.input?.pressed('Escape') || SF.input?.pressed('KeyP')) {
+        if (SF.state.mode === 'play') this.setMode('pause');
+        else if (SF.state.mode === 'pause') this.setMode('play');
       }
-      SF.phone.update();
-      if (state.mode === 'play') {
-        state.elapsed += dt;
-        update(SF.player, dt);
-        update(SF.vehicles, dt);
-        update(SF.traffic, dt);
-        update(SF.peds, dt);
-        const fired = SF.weapons?.shots;
-        const shotCount = Array.isArray(fired) ? fired.length : fired;
-        update(SF.weapons, dt);
-        const shots = SF.weapons?.shots;
-        if ((Array.isArray(shots) ? shots.length : shots) > shotCount) SF.audio.gunshot();
-        update(SF.police, dt);
-        if (Number.isFinite(SF.player?.cash)) {
-          state.cash = SF.player.cash;
-          SF.missions.cash = state.cash;
-        }
-        const pos = this.position();
-        if (pos) {
-          const district = SF.city?.districtAt?.(pos.x, pos.z) ?? SF.world?.districtAt?.(pos.x, pos.z);
-          state.district = district?.name ?? district ?? state.district ?? 'Palma Strand';
-        }
-        SF.missions.update(dt, pos, Boolean(this.vehicle()), this.wanted());
-        if (SF.player?.busted || SF.police?.busted) state.mode = 'busted';
-        else if (SF.player?.health <= 0 || SF.player?.dead) state.mode = 'wasted';
-        if (state.mode !== 'play') document.exitPointerLock?.();
-      }
-      SF.audio.update({
-        playing: state.mode === 'play', driving: Boolean(this.vehicle()),
-        walking: ['KeyW', 'KeyA', 'KeyS', 'KeyD'].some(SF.input.isDown),
-        speed: Number(this.vehicle()?.speed) || 0, wanted: this.wanted()
-      });
-      update(SF.hud, dt);
-      SF.input.endFrame();
-    }
+      if (SF.state.mode === 'play') {
+        this.accumulator += dt;
+        while (this.accumulator >= this.fixedStep && SF.state.mode === 'play') { this.tick(this.fixedStep); this.accumulator -= this.fixedStep; stepped = true; }
+      } else { this.accumulator = 0; SF.audio?.update?.(dt); }
+      SF.hud?.update?.(dt); SF.ui?.update?.(dt);
+      if (stepped || SF.state.mode !== 'play') SF.input?.endFrame();
+    },
+    step(dt) { this.update(dt); }
   };
 })();
