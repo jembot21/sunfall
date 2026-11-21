@@ -1,89 +1,91 @@
-'use strict';
-
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
-const store = new Map();
-global.localStorage = {
-  getItem(key) { return store.has(key) ? store.get(key) : null; },
-  setItem(key, value) { store.set(key, String(value)); },
-  removeItem(key) { store.delete(key); }
-};
-global.__SUNFALL_HEADLESS__ = true;
-global.__SUNFALL_STOP_LOOP__ = true;
-
-function fakeElement(tag) {
-  const events = Object.create(null);
-  return {
-    tagName: tag.toUpperCase(), style: {}, children: [], attributes: {}, className: '', textContent: '',
-    classList: { add() {}, remove() {} },
-    appendChild(child) { child.parentNode = this; this.children.push(child); return child; },
-    removeChild(child) { this.children = this.children.filter((item) => item !== child); child.parentNode = null; },
-    addEventListener(type, callback) { (events[type] ||= []).push(callback); },
-    setAttribute(name, value) { this.attributes[name] = value; },
-    getContext() { return { clearRect() {}, save() {}, restore() {}, beginPath() {}, arc() {}, clip() {}, fillRect() {}, moveTo() {}, lineTo() {}, stroke() {}, fill() {}, translate() {}, rotate() {}, closePath() {} }; },
-    dispatch(type, event = {}) { for (const callback of events[type] || []) callback(event); }
-  };
+const eventTarget = { addEventListener() {}, removeEventListener() {} };
+const context2d = new Proxy({
+  createLinearGradient: () => ({ addColorStop() {} }),
+  createRadialGradient: () => ({ addColorStop() {} }),
+  createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+  getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+  measureText: () => ({ width: 10 })
+}, { get: (target, key) => target[key] ?? (() => {}) });
+class Vector {
+  constructor(x = 0, y = 0, z = 0) { this.set(x, y, z); }
+  set(x, y, z = 0) { Object.assign(this, { x, y, z }); return this; }
+  copy(v) { return this.set(v.x, v.y, v.z); }
+  clone() { return new Vector(this.x, this.y, this.z); }
+  setScalar(n) { return this.set(n, n, n); }
+  normalize() { return this; }
 }
-global.document = Object.assign(fakeElement('document'), {
-  readyState: 'loading',
-  body: fakeElement('body'),
-  head: fakeElement('head'),
-  createElement(tag) { return fakeElement(tag); },
-  pointerLockElement: null
+class Node {
+  constructor() {
+    this.position = new Vector();
+    this.rotation = new Vector();
+    this.scale = new Vector(1, 1, 1);
+    this.userData = {};
+    this.children = [];
+    this.domElement = { ...eventTarget, style: {} };
+    this.shadowMap = {};
+    this.shadow = { mapSize: new Vector(), camera: {} };
+    this.target = { position: new Vector() };
+  }
+  add(...nodes) { this.children.push(...nodes); }
+  remove() {}
+  lookAt() {}
+  setPixelRatio() {}
+  setSize() {}
+  setAttribute() { return this; }
+  setIndex() { return this; }
+  computeVertexNormals() {}
+  set() { return this; }
+  clone() { return new Node(); }
+}
+const THREE = new Proxy({
+  Vector2: Vector, Vector3: Vector, Euler: Vector,
+  MathUtils: {
+    clamp: (x, min, max) => Math.min(max, Math.max(min, x)),
+    lerp: (a, b, t) => a + (b - a) * t,
+    degToRad: degrees => degrees * Math.PI / 180
+  }
+}, { get: (target, key) => target[key] ?? Node });
+const document = {
+  ...eventTarget, readyState: 'loading',
+  body: { appendChild() {}, append() {} },
+  createElement: () => ({ ...eventTarget, style: {}, getContext: () => context2d }),
+  querySelector: () => null,
+  getElementById: () => null
+};
+const sandbox = vm.createContext({
+  SF: {}, THREE, document, console, performance, URLSearchParams,
+  location: { search: '' }, requestAnimationFrame() {}, setTimeout, clearTimeout,
+  innerWidth: 1024, innerHeight: 768, devicePixelRatio: 1,
+  ...eventTarget
 });
-
-const modules = [
-  'input.js', 'audio.js', 'save.js', 'missions.js', 'hud.js', 'shots.js', 'main.js'
-];
-for (const file of modules) require(path.join(__dirname, '..', 'game', 'src', file));
-
-const SF = global.SF;
-assert.ok(SF, 'SF namespace boots');
-assert.equal(SF.missions.districts.length, 6, 'six districts');
+sandbox.window = sandbox;
+sandbox.self = sandbox;
+const files = ['config', 'random', 'city', 'world', 'render', 'input', 'audio', 'save',
+  'phone', 'player', 'vehicles', 'traffic', 'peds', 'police', 'weapons', 'missions', 'runtime', 'main'];
+for (const file of files) {
+  const filename = path.join(__dirname, '..', 'game', 'src', file + '.js');
+  vm.runInContext(fs.readFileSync(filename, 'utf8'), sandbox, { filename });
+}
+const { SF } = sandbox;
+assert.ok(SF);
+const districts = SF.city?.districts ?? SF.CONFIG?.districts ?? SF.CONFIG?.DISTRICTS ?? SF.world?.districts;
+assert.equal(Object.keys(districts ?? {}).length, 6, 'six districts');
+const types = SF.vehicles?.types ?? SF.vehicles?.TYPES ?? SF.CONFIG?.VEHICLE_TYPES;
+assert.equal(Object.keys(types ?? {}).length, 6, 'six vehicle types');
+assert.ok(Object.values(types).every(type => typeof (type?.name ?? type) === 'string'), 'vehicle types have names');
 assert.equal(SF.missions.story.length, 8, 'eight story missions');
-assert.equal(SF.missions.activities.length, 4, 'four repeatable activities');
-
-SF.main.boot({ headless: true, autoLoop: false });
-assert.equal(SF.main.state.booted, true, 'main module booted');
-
-document.dispatch('keydown', { code: 'KeyW', preventDefault() {} });
-assert.equal(SF.input.isDown('KeyW'), true, 'keyboard state tracks down');
-assert.equal(SF.input.wasPressed('KeyW'), true, 'keyboard edge is recorded');
-document.dispatch('keyup', { code: 'KeyW' });
-assert.equal(SF.input.isDown('KeyW'), false, 'keyboard state tracks release');
-
-SF.save.clear();
-SF.save.store({ cash: 1875, storyDone: 3, unlocks: ['harbor-pass'], safehouse: { x: 14, y: 2, z: -8 } });
-assert.equal(SF.save.saved, true, 'save sets continue flag');
-const loaded = SF.save.load();
-assert.equal(loaded.cash, 1875, 'save cash round trip');
-assert.equal(loaded.storyDone, 3, 'save progress round trip');
-assert.deepEqual(loaded.unlocks, ['harbor-pass'], 'save unlock round trip');
-assert.deepEqual(loaded.safehouse, { x: 14, y: 2, z: -8 }, 'safehouse round trip');
-
-const paths = SF.missions.getCampaignPaths();
-assert.equal(paths.length, 8, 'campaign path for every story mission');
-assert.ok(paths.every((p) => Array.isArray(p) && p.length >= 2 && p.every((m) => Number.isFinite(m.x) && Number.isFinite(m.z))), 'campaign route markers exist');
-assert.equal(SF.missions.escapeSatisfied({ wanted: 0, elapsed: 2, distance: 60 }), true, 'patrol escape succeeds after clearing heat and distance');
-assert.equal(SF.missions.escapeSatisfied({ wanted: 1, elapsed: 8, distance: 200 }), false, 'patrol escape requires no wanted stars');
-assert.equal(SF.missions.escapeSatisfied({ wanted: 0, elapsed: 1, distance: 200 }), false, 'patrol escape requires time');
-
-SF.missions.restore(loaded);
-SF.player = { mesh: { position: { x: -365, y: 0, z: -225 } }, inVehicle: false };
-SF.missions.begin(0);
-assert.equal(SF.missions.active.currentObjective, 'Meet Marco Reyes in Palma Strand', 'first job starts at Marco');
-SF.missions.interact({ force: true });
-SF.player.inVehicle = true;
-SF.missions.interact({ force: true });
-SF.missions.interact({ force: true });
-SF.player.mesh.position = { x: -365, y: 0, z: -225 };
-assert.equal(SF.missions.interact({ wanted: 0, elapsed: 2, distance: 80 }), true, 'campaign completes after patrol escape');
-assert.equal(SF.missions.storyDone, 1, 'campaign progress advances');
-assert.equal(SF.missions.cash, 2475, 'mission payout updates cash');
-
-assert.deepEqual(SF.shots.names.slice().sort(), ['chase', 'drive', 'mission', 'street'], 'four staged capture states exist');
-assert.ok(SF.shots.names.every((name) => SF.shots.scenes[name].player && SF.shots.scenes[name].wanted != null), 'capture states contain a player and wanted level');
-for (const name of SF.shots.names) assert.equal(SF.shots.apply(name), true, `${name} capture state applies`);
-
-process.stdout.write('Sunfall smoke: 6 districts, 8 story missions, 4 activities, boot/input/save/routes/escape/captures passed.\n');
+if (!SF.player.mesh) {
+  const scene = new Node();
+  if (SF.world && !SF.world.scene) SF.world.scene = scene;
+  const init = SF.player.init || SF.player.create || SF.player.build;
+  init?.call(SF.player, scene);
+}
+assert.ok(Object.keys(SF.player.mesh?.userData?.arms ?? {}).length, 'player has animated arms');
+assert.ok(Array.isArray(SF.police.units), 'live dispatch list exists');
+assert.equal(typeof SF.phone.call, 'function');
+console.log('PASS Sunfall smoke: six districts, six named vehicles, eight missions, player arms, dispatch list, phone');

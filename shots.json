@@ -1,6 +1,6 @@
-[
-  { "file": "1-chase.jpg", "scene": "chase", "what": "A four-star pursuit with the player car, patrol light bars, minimap, mission objective and tracker." },
-  { "file": "2-street.jpg", "scene": "street", "what": "The player on a downtown sidewalk, with articulated arms, live pedestrians, traffic and the complete HUD." },
-  { "file": "3-drive.jpg", "scene": "drive", "what": "A golden-hour coast-road drive with the player vehicle, sea, sun and mission HUD." },
-  { "file": "4-mission.jpg", "scene": "mission", "what": "First Favor at the coastal meeting point with the objective beacon, banner, tracker and minimap." }
-]
+{
+  "cover": "screenshots/1-chase.jpg",
+  "street": "screenshots/2-street.jpg",
+  "drive": "screenshots/3-drive.jpg",
+  "mission": "screenshots/4-mission.jpg"
+}

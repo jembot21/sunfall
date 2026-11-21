@@ -1,173 +1,124 @@
-(function (S) {
+(function () {
   'use strict';
-  S.createCity = function () {
-    const T = THREE, C = S.Config, G = C.city, P = C.palette;
-    const random = S.Random(C.seed), root = new T.Group();
-    root.name = 'Solano Bay city';
-    const collisions = [], blocks = [], batches = {};
-    const cube = new T.BoxGeometry(1, 1, 1);
-    const cylinder = new T.CylinderGeometry(1, 1, 1, 7);
-    const leaf = new T.SphereGeometry(1, 6, 4);
-    const material = (color, extra) => new T.MeshStandardMaterial(Object.assign({ color, roughness: 0.88 }, extra));
-    function batch(name, geometry, mat) {
-      batches[name] = { geometry, material: mat, entries: [] };
+  const SF = window.SF, C = SF.CONFIG, T = THREE, S = C.street;
+  const city = SF.city = { streets: [], intersections: [], sidewalks: [], parkingSpots: [], propSpots: [], collisionBounds: [], water: null };
+  const step = S.blockSize, west = -step * S.columns / 2, north = -step * S.rows / 2;
+  city.bounds = { minX: west, maxX: -west, minZ: north, maxZ: -north };
+  city.districtAt = function (x, z) { return C.districts[Math.min(2, Math.max(0, Math.floor((x - west) / (step * 3)))) + (z >= 0 ? 3 : 0)]; };
+  for (let x = 0; x <= S.columns; x++) city.streets.push({ axis: 'z', x: west + x * step, z: 0, length: step * S.rows + S.roadWidth, width: S.roadWidth });
+  for (let z = 0; z <= S.rows; z++) city.streets.push({ axis: 'x', x: 0, z: north + z * step, length: step * S.columns + S.roadWidth, width: S.roadWidth });
+  for (let x = 0; x <= S.columns; x++) for (let z = 0; z <= S.rows; z++) city.intersections.push({ x: west + x * step, z: north + z * step });
+  city.build = function (scene) {
+    if (city.group) return city.group;
+    const rng = SF.random.seeded(C.seed), group = city.group = new T.Group(); scene.add(group);
+    const batches = new Map(), dummy = new T.Object3D();
+    const materials = {};
+    function mat(color, emissive) { const key = color + ':' + (emissive || 0); return materials[key] || (materials[key] = SF.assets.standard({ color, roughness: 0.88, emissive: emissive || 0, emissiveIntensity: 0.7 })); }
+    function box(x, y, z, w, h, d, color, emissive, rotation) {
+      const material = mat(color, emissive), key = material.uuid;
+      if (!batches.has(key)) batches.set(key, { material, items: [] });
+      batches.get(key).items.push({ x, y, z, w, h, d, rotation: rotation || 0 });
     }
-    batch('buildings', cube, material(0xffffff));
-    batch('roofs', cube, material(0x735659));
-    batch('windows', cube, material(P.window, { emissive: P.window, emissiveIntensity: 0.65 }));
-    batch('sidewalks', cube, material(P.sidewalk));
-    batch('markings', cube, material(0xe7c18d));
-    batch('trunks', cylinder, material(0x896148));
-    batch('fronds', leaf, material(0x3d785c));
-    batch('lampPosts', cylinder, material(0x45474e, { metalness: 0.4 }));
-    batch('lampArms', cube, material(0x45474e));
-    batch('lampBulbs', cube, material(0xffda90, { emissive: 0xffb85c, emissiveIntensity: 1.5 }));
-    batch('benches', cube, material(0x955740));
-    batch('crates', cube, material(0xb5804e));
-    batch('containers', cube, material(0xffffff));
-    function add(name, x, y, z, sx, sy, sz, color, rotation) {
-      batches[name].entries.push({ x, y, z, sx, sy, sz, color, rotation: rotation || 0 });
-    }
-    function bound(x, z, w, d, height, kind) {
-      collisions.push({ minX: x - w / 2, maxX: x + w / 2,
-        minZ: z - d / 2, maxZ: z + d / 2, minY: 0, maxY: height, kind });
-    }
-    function palm(x, z, rng) {
-      const h = rng.range(8, 12), angle = rng.range(0, Math.PI * 2);
-      add('trunks', x, h / 2, z, 0.23, h, 0.23);
-      for (let i = 0; i < 5; i++) {
-        const a = angle + i * Math.PI * 0.4;
-        add('fronds', x + Math.sin(a) * 1.8, h, z + Math.cos(a) * 1.8,
-          0.65, 0.32, 3.1, undefined, a);
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 256;
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#302a26'; ctx.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 18000; i++) { const v = rng.int(25, 72); ctx.fillStyle = 'rgba(' + v + ',' + (v - 5) + ',' + (v - 9) + ',0.35)'; ctx.fillRect(rng.int(0, 255), rng.int(0, 255), 1, 1); }
+    ctx.strokeStyle = '#231f1c'; ctx.lineWidth = 1;
+    for (let i = 0; i < 13; i++) { let x = rng.range(0, 256), y = rng.range(0, 256); ctx.beginPath(); ctx.moveTo(x, y); for (let j = 0; j < 5; j++) { x += rng.range(-15, 15); y += rng.range(4, 17); ctx.lineTo(x, y); } ctx.stroke(); }
+    ctx.fillStyle = 'rgba(10,8,7,.12)'; [49, 83, 173, 207].forEach(x => ctx.fillRect(x, 0, 12, 256));
+    const asphalt = new T.CanvasTexture(canvas); asphalt.wrapS = asphalt.wrapT = T.RepeatWrapping; asphalt.repeat.set(1, 5); if (T.sRGBEncoding) asphalt.encoding = T.sRGBEncoding;
+    const roadMaterial = new T.MeshStandardMaterial({ map: asphalt, roughness: 1, color: 0xd1b9a0 });
+    city.streets.forEach(road => {
+      const vertical = road.axis === 'z';
+      // Vertical ribbons own the junction squares: horizontal spans end at their edges.
+      // This avoids coplanar asphalt faces and different texture directions flickering.
+      const segmentCount = vertical ? 1 : S.columns;
+      for (let segment = 0; segment < segmentCount; segment++) {
+        const length = vertical ? road.length : step - S.roadWidth;
+        const mesh = new T.Mesh(SF.assets.box, roadMaterial);
+        mesh.scale.set(S.roadWidth, 0.12, length);
+        mesh.position.set(vertical ? road.x : west + (segment + 0.5) * step, 0.015, road.z);
+        mesh.rotation.y = vertical ? 0 : Math.PI / 2; mesh.receiveShadow = true; group.add(mesh);
       }
-      bound(x, z, 0.5, 0.5, h, 'palm');
-    }
-    function lamp(x, z, angle) {
-      add('lampPosts', x, 3.7, z, 0.12, 7.4, 0.12);
-      add('lampArms', x + Math.sin(angle), 7.3, z + Math.cos(angle), 0.16, 0.16, 2.2, undefined, angle);
-      add('lampBulbs', x + Math.sin(angle) * 2, 7.15, z + Math.cos(angle) * 2, 0.65, 0.16, 1.1, undefined, angle);
-      bound(x, z, 0.3, 0.3, 7.5, 'lamp');
-    }
-    // Streets are the continuous ground; raised islands define each walkable block.
-    const island = G.block - G.road;
-    for (let row = 0; row < G.rows; row++) {
-      for (let col = 0; col < G.columns; col++) {
-        const x = G.minX + (col + 0.5) * G.block;
-        const z = G.minZ + (row + 0.5) * G.block;
-        const district = C.districts.find(d => col >= d.col[0] && col <= d.col[1] && row >= d.row[0] && row <= d.row[1]);
-        const rng = random.fork(col + ':' + row);
-        blocks.push({ x, z, district: district.id });
-        add('sidewalks', x, 0.12, z, island, 0.24, island);
-        for (let slot = 0; slot < 4; slot++) {
-          if (!rng.chance(district.density)) continue;
-          const bx = x + (slot % 2 ? 1 : -1) * 10.5;
-          const bz = z + (slot < 2 ? -1 : 1) * 10.5;
-          const w = rng.range(13, 18), d = rng.range(13, 18);
-          const h = rng.range(district.height[0], district.height[1]);
-          add('buildings', bx, h / 2 + 0.24, bz, w, h, d, rng.pick(district.colors));
-          add('roofs', bx, h + 0.45, bz, w + 0.3, 0.4, d + 0.3);
-          add('roofs', bx + w * 0.2, h + 1.1, bz, 3, 1.2, 3);
-          bound(bx, bz, w, d, h + 1.7, 'building');
-          // Window strips on all four faces, with individually seeded dark bays.
-          for (let y = 2.4; y < h - 1; y += G.floorHeight) {
-            for (let bay = -1; bay <= 1; bay++) {
-              if (rng.chance(0.75)) {
-                add('windows', bx + bay * w * 0.26, y, bz - d / 2 - 0.03, 1.65, 1.15, 0.06);
-                add('windows', bx + bay * w * 0.26, y, bz + d / 2 + 0.03, 1.65, 1.15, 0.06);
-              }
-              if (rng.chance(0.65)) {
-                add('windows', bx - w / 2 - 0.03, y, bz + bay * d * 0.26, 0.06, 1.15, 1.65);
-                add('windows', bx + w / 2 + 0.03, y, bz + bay * d * 0.26, 0.06, 1.15, 1.65);
-              }
-            }
-          }
-        }
-        const edge = island / 2 - 1.8;
-        lamp(x - edge, z - edge, -Math.PI / 2);
-        if (rng.chance(district.props.palms)) palm(x + edge, z - edge, rng);
-        if (rng.chance(district.props.palms)) palm(x - edge, z + edge, rng);
-        if (rng.chance(district.props.benches)) {
-          add('benches', x + edge, 0.8, z + 5, 1.1, 0.35, 3.2);
-          add('benches', x + edge + 0.4, 1.3, z + 5, 0.18, 0.8, 3.2);
-          bound(x + edge, z + 5, 1.5, 3.2, 1.7, 'bench');
-        }
-        if (rng.chance(district.props.crates)) {
-          add('crates', x + 3, 1.1, z + edge, 2, 2, 2);
-          bound(x + 3, z + edge, 2, 2, 2.1, 'crate');
+      for (let a = -road.length / 2 + 3; a < road.length / 2; a += 9) {
+        const coordinate = a + (vertical ? -north : -west), nearest = Math.abs(coordinate / step - Math.round(coordinate / step)) * step;
+        if (nearest < 12) continue;
+        box(road.x + (vertical ? 0 : a), 0.09, road.z + (vertical ? a : 0), vertical ? 0.15 : 4.5, 0.025, vertical ? 4.5 : 0.15, 0xe8c98c);
+      }
+      for (const side of [-1, 1]) {
+        // Edge lines stop at junction mouths rather than running across crosswalks.
+        const count = vertical ? S.rows : S.columns, start = vertical ? north : west;
+        for (let i = 0; i < count; i++) {
+          const a = start + (i + 0.5) * step;
+          box(vertical ? road.x + side * 7 : a, 0.09, vertical ? a : road.z + side * 7, vertical ? 0.13 : step - 20, 0.025, vertical ? step - 20 : 0.13, 0xd8cbb5);
         }
       }
-    }
-    // Lane dashes and crosswalks stay in the street corridors.
-    for (let i = 0; i <= G.columns; i++) {
-      const line = G.minX + i * G.block;
-      for (let j = 0; j < G.rows; j++) {
-        const center = G.minZ + (j + 0.5) * G.block;
-        for (let k = -2; k <= 2; k++) {
-          add('markings', line, 0.018, center + k * 9, 0.18, 0.025, 4.5);
-          add('markings', center + k * 9, 0.018, line, 4.5, 0.025, 0.18);
-        }
-        for (let k = -2; k <= 2; k++) {
-          add('markings', line + k * 2, 0.02, center - 25, 1.1, 0.025, 2.4);
-          add('markings', center - 25, 0.02, line + k * 2, 2.4, 0.025, 1.1);
-        }
-      }
-    }
-    for (let z = G.minZ; z <= G.maxZ; z += 24) palm(-304, z, random);
-    // Marina piers and industrial quays extend from the coastal promenade.
-    const docks = new T.Group();
-    for (let i = 0; i < 5; i++) {
-      const dock = new T.Mesh(cube, material(0x906d58));
-      dock.position.set(-382, -0.1, 20 + i * 43);
-      dock.scale.set(104, 1.2, 7); dock.receiveShadow = true;
-      docks.add(dock);
-      collisions.push({ minX: -434, maxX: -330, minZ: 16.5 + i * 43,
-        maxZ: 23.5 + i * 43, minY: -0.7, maxY: 0.5, kind: 'pier', walkable: true });
-    }
-    root.add(docks);
-    // Industrial container yard in the southeast outer strip.
-    for (let i = 0; i < 16; i++) {
-      const x = 312 + (i % 2) * 9, z = 40 + Math.floor(i / 2) * 24;
-      add('containers', x, 1.65, z, 7, 3.3, 16, random.pick([0xa34e41, 0x437f83, 0xbb8b48]));
-      bound(x, z, 7, 16, 3.3, 'container');
-    }
-    const dummy = new T.Object3D(), tint = new T.Color();
-    Object.keys(batches).forEach(name => {
-      const b = batches[name];
-      const mesh = new T.InstancedMesh(b.geometry, b.material, b.entries.length);
-      mesh.name = name;
-      b.entries.forEach((e, index) => {
-        dummy.position.set(e.x, e.y, e.z); dummy.rotation.set(0, e.rotation, 0);
-        dummy.scale.set(e.sx, e.sy, e.sz); dummy.updateMatrix();
-        mesh.setMatrixAt(index, dummy.matrix);
-        if (e.color !== undefined) mesh.setColorAt(index, tint.setHex(e.color));
-      });
-      mesh.castShadow = !['markings', 'windows', 'sidewalks', 'lampBulbs'].includes(name);
-      mesh.receiveShadow = name !== 'windows';
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      root.add(mesh);
     });
-    const waterGeometry = new T.PlaneGeometry(1100, 1800, C.water.segments, C.water.segments);
-    waterGeometry.rotateX(-Math.PI / 2);
-    const water = new T.Mesh(waterGeometry, material(P.sea, { roughness: 0.32, metalness: 0.28 }));
-    water.position.set(G.seaX - 550, -1.0, 0); water.name = 'animated bay';
-    root.add(water);
-    const positions = waterGeometry.attributes.position;
-    const shore = new T.Mesh(new T.PlaneGeometry(5, 900), material(P.seaHighlight, { transparent: true, opacity: 0.65 }));
-    shore.rotation.x = -Math.PI / 2; shore.position.set(G.seaX - 2, -0.65, 0);
-    root.add(shore);
-    return {
-      group: root, collisions, blocks, water,
-      bounds: { minX: G.seaX, maxX: 342, minZ: -330, maxZ: 330 },
-      update: function (time) {
-        for (let i = 0; i < positions.count; i++) {
-          positions.setY(i, Math.sin(positions.getX(i) * 0.035 + time * C.water.speed) *
-            Math.cos(positions.getZ(i) * 0.022 + time * 0.3) * C.water.amplitude);
-        }
-        positions.needsUpdate = true;
-        // Small waves use upward normals to avoid per-frame geometry normal work.
-        shore.material.opacity = 0.48 + Math.sin(time * 0.65) * 0.12;
+    city.intersections.forEach(p => {
+      for (const side of [-1, 1]) for (let k = -5; k <= 5; k += 2) {
+        box(p.x + k, 0.1, p.z + side * 10, 1.15, 0.025, 3.2, 0xe6d8bf);
+        box(p.x + side * 10, 0.1, p.z + k, 3.2, 0.025, 1.15, 0xe6d8bf);
       }
-    };
+    });
+    function prop(kind, x, z, angle) {
+      const c = Math.cos(angle), s = Math.sin(angle);
+      const part = (dx, y, dz, w, h, d, color, glow) => box(x + dx * c + dz * s, y, z - dx * s + dz * c, w, h, d, color, glow, angle);
+      if (kind === 'palm') {
+        part(0, 4.7, 0, 0.45, 9, 0.45, 0x76543a);
+        for (let i = 0; i < 6; i++) box(x, 9.1 + (i % 2) * 0.2, z, 6.5, 0.18, 0.85, 0x416d43, 0, i * Math.PI / 3);
+      } else if (kind === 'bench') {
+        part(0, 0.9, 0, 2.5, 0.18, 0.8, 0x996c46); part(0, 1.4, -0.35, 2.5, 0.8, 0.15, 0x996c46);
+        [-0.9, 0.9].forEach(a => part(a, 0.5, 0, 0.15, 0.8, 0.65, 0x353d38));
+      } else if (kind === 'planter') { part(0, 0.7, 0, 2.3, 1, 1.3, 0xb7a189); part(0, 1.45, 0, 2, 0.8, 1.05, 0x4b7945); }
+      else if (kind === 'bus') {
+        [-2, 2].forEach(a => part(a, 1.8, 0, 0.13, 3.2, 0.13, 0x394b49)); part(0, 3.45, 0, 5, 0.2, 2.6, 0x627c73); part(0, 1.8, -1, 4.2, 2.7, 0.12, 0x718f89); part(0, 0.8, 0, 3.5, 0.2, 0.7, 0xb39c72);
+      } else if (kind === 'sign') { part(0, 1.8, 0, 0.1, 3.3, 0.1, 0x77796b); part(0, 3.1, 0, 1.8, 0.6, 0.12, 0x397367); }
+      else if (kind === 'news') { part(0, 0.95, 0, 0.8, 1.5, 0.75, 0xb65a3a); part(0, 1.2, 0.4, 0.6, 0.45, 0.05, 0xe5d5b6); }
+      else if (kind === 'crate') { part(0, 0.9, 0, 1.5, 1.5, 1.5, 0x987447); part(0, 0.9, 0, 1.6, 0.12, 1.6, 0x574b37); }
+      else if (kind === 'barrel') { part(0, 0.8, 0, 0.9, 1.2, 0.9, 0x855044); part(0, 0.8, 0, 0.96, 0.12, 0.96, 0x414841); }
+      else { part(0, 0.85, 0, 0.7, 1.2, 0.7, 0x3c6258); part(0, 1.5, 0, 0.8, 0.15, 0.8, 0x293e38); }
+    }
+    for (let ix = 0; ix < S.columns; ix++) for (let iz = 0; iz < S.rows; iz++) {
+      const x = west + (ix + 0.5) * step, z = north + (iz + 0.5) * step, district = city.districtAt(x, z), extent = step - S.roadWidth;
+      box(x, 0.18, z, extent, 0.36, extent, C.palette.sidewalk);
+      for (const side of [-1, 1]) {
+        box(x + side * (extent / 2 - 0.16), 0.25, z, 0.32, 0.5, extent, C.palette.curb);
+        box(x, 0.25, z + side * (extent / 2 - 0.16), extent, 0.5, 0.32, C.palette.curb);
+        city.sidewalks.push({ x: x + side * (extent / 2 - 2.5), z, width: 5, length: extent, axis: 'z', district: district.name });
+        city.sidewalks.push({ x, z: z + side * (extent / 2 - 2.5), width: 5, length: extent, axis: 'x', district: district.name });
+        for (let offset = -24; offset <= 24; offset += 12) {
+          city.parkingSpots.push({ x: x + offset, z: z + side * (extent / 2 + 1.6), heading: side > 0 ? Math.PI / 2 : -Math.PI / 2, district: district.name });
+          city.parkingSpots.push({ x: x + side * (extent / 2 + 1.6), z: z + offset, heading: side > 0 ? 0 : Math.PI, district: district.name });
+        }
+        for (let offset = -24; offset <= 24; offset += 16) {
+          const px = x + offset, pz = z + side * (extent / 2 - 2.5), kind = rng.pick(district.props);
+          city.propSpots.push({ x: px, z: pz, heading: side > 0 ? 0 : Math.PI, kind, district: district.name }); prop(kind, px, pz, side > 0 ? 0 : Math.PI);
+          prop(rng.pick(district.props), x + side * (extent / 2 - 2.5), z + offset, Math.PI / 2);
+        }
+        const lx = x + side * 27, lz = z + side * 29;
+        box(lx, 4.4, lz, 0.16, 8.4, 0.16, 0x484a3d); box(lx, 8.6, lz, 2.4, 0.15, 0.3, 0x484a3d); box(lx + 0.9, 8.45, lz, 0.7, 0.12, 0.4, 0xffd69a, 0xffb35f);
+      }
+      for (let bx = -1; bx <= 1; bx++) for (let bz = -1; bz <= 1; bz++) {
+        if (!rng.chance(district.density)) { prop('planter', x + bx * 17, z + bz * 17, 0); continue; }
+        const px = x + bx * 17, pz = z + bz * 17, w = rng.range(12, 16), d = rng.range(12, 16), h = rng.range(...district.heights);
+        box(px, h / 2 + 0.36, pz, w, h, d, rng.pick(district.colors)); box(px, h + 0.7, pz, w + 0.5, 0.7, d + 0.5, 0x82654d);
+        city.collisionBounds.push({ minX: px - w / 2, maxX: px + w / 2, minZ: pz - d / 2, maxZ: pz + d / 2, height: h });
+        // Facades need no canvases: every window is an instance of the same box,
+        // using just the shared lit/unlit finishes across the entire city.
+        for (let y = 3; y < h - 1; y += 3.5) for (let a = -4; a <= 4; a += 4) {
+          const glow = rng.chance(0.38), color = glow ? 0xd99b53 : 0x233e42;
+          for (const side of [-1, 1]) { box(px + a, y, pz + side * (d / 2 + 0.035), 1.4, 1.7, 0.08, color, glow ? 0xd38b43 : 0); box(px + side * (w / 2 + 0.035), y, pz + a, 0.08, 1.7, 1.4, color, glow ? 0xd38b43 : 0); }
+        }
+      }
+    }
+    batches.forEach(batch => {
+      const mesh = new T.InstancedMesh(SF.assets.box, batch.material, batch.items.length);
+      batch.items.forEach((p, i) => { dummy.position.set(p.x, p.y, p.z); dummy.scale.set(p.w, p.h, p.d); dummy.rotation.set(0, p.rotation, 0); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); });
+      // InstancedMesh.setMatrixAt only edits the CPU-side buffer. Mark it dirty so
+      // WebGL uploads the transforms instead of drawing every instance at origin.
+      if (mesh.instanceMatrix) mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere?.();
+      mesh.castShadow = false; mesh.receiveShadow = true; group.add(mesh);
+    });
+    return group;
   };
-})(window.Sunfall = window.Sunfall || {});
+}());

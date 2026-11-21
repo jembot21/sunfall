@@ -1,24 +1,41 @@
-import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { dirname, extname, normalize, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { createReadStream } from 'node:fs';
+import { realpath, stat } from 'node:fs/promises';
+import { extname, resolve, sep } from 'node:path';
 
-const root = dirname(fileURLToPath(import.meta.url));
-const args = process.argv.slice(2);
-const portAt = args.indexOf('--port');
-const port = Number(portAt >= 0 ? args[portAt + 1] : 4173) || 4173;
-const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
-
-createServer(function (req, res) {
-  var pathname;
-  try { pathname = decodeURIComponent(new URL(req.url || '/', 'http://localhost').pathname); }
-  catch (_) { res.writeHead(400).end('Bad request'); return; }
-  if (pathname === '/') { res.writeHead(302, { Location: '/game/index.html' }).end(); return; }
-  var file = resolve(root, '.' + normalize(pathname));
-  if (file !== root && !file.startsWith(root + sep)) { res.writeHead(403).end('Forbidden'); return; }
-  if (!existsSync(file) || !statSync(file).isFile()) { res.writeHead(404).end('Not found'); return; }
-  res.writeHead(200, { 'Content-Type': types[extname(file).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
-  createReadStream(file).pipe(res);
-}).listen(port, '0.0.0.0', function () {
-  process.stdout.write('Sunfall serving repository at http://localhost:' + port + '\n');
-});
+const root = await realpath(import.meta.dirname);
+const types = {
+  '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json', '.jpg': 'image/jpeg', '.png': 'image/png',
+  '.webp': 'image/webp', '.svg': 'image/svg+xml', '.woff2': 'font/woff2'
+};
+const port = Number(process.argv[2] || process.env.PORT || 8000);
+createServer(async (req, res) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, { Allow: 'GET, HEAD' }).end();
+    return;
+  }
+  try {
+    const path = decodeURIComponent(new URL(req.url || '/', 'http://localhost').pathname);
+    if (path === '/' || path === '/game') {
+      res.writeHead(302, { Location: '/game/' + new URL(req.url || '/', 'http://localhost').search }).end();
+      return;
+    }
+    const local = path.endsWith('/') ? path + 'index.html' : path;
+    if (local.split('/').some(part => part.startsWith('.'))) throw new Error('Hidden path');
+    const file = await realpath(resolve(root, '.' + local));
+    if (!file.startsWith(root + sep)) throw new Error('Outside repository');
+    const info = await stat(file);
+    if (!info.isFile()) throw new Error('Not a file');
+    res.writeHead(200, {
+      'Content-Type': types[extname(file)] || 'application/octet-stream',
+      'Content-Length': info.size,
+      'Cache-Control': 'no-store'
+    });
+    if (req.method === 'HEAD') res.end();
+    else createReadStream(file).on('error', () => res.destroy()).pipe(res);
+  } catch {
+    res.writeHead(404).end('Not found');
+  }
+}).listen(port, '127.0.0.1', () => console.log('Sunfall at http://127.0.0.1:' + port + '/game/'));

@@ -1,173 +1,143 @@
-(function (S) {
+(function () {
   'use strict';
-  S.createRender = function (container) {
-    const T = THREE, C = S.Config, R = C.render, K = C.camera;
-    const renderer = new T.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, R.pixelRatio));
-    renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
-    renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = R.exposure;
-    // Support both generations of the vendored Three color-management API.
-    if ('outputColorSpace' in renderer && T.SRGBColorSpace) renderer.outputColorSpace = T.SRGBColorSpace;
-    else if (T.sRGBEncoding) renderer.outputEncoding = T.sRGBEncoding;
-    container.appendChild(renderer.domElement);
-    renderer.domElement.setAttribute('aria-label', 'Solano Bay city view');
-    const scene = new T.Scene();
-    scene.fog = new T.Fog(C.palette.fog, R.fogNear, R.fogFar);
-    const camera = new T.PerspectiveCamera(R.fov, 1, R.near, R.far);
-    const hemisphere = new T.HemisphereLight(0xffcf99, 0x63516b, R.hemisphereIntensity);
-    scene.add(hemisphere);
-    const sun = new T.DirectionalLight(0xffc18a, R.sunIntensity);
-    sun.position.fromArray(R.sunPosition); sun.castShadow = true;
-    sun.shadow.mapSize.set(R.shadowSize, R.shadowSize);
-    Object.assign(sun.shadow.camera, { left: -R.shadowRange, right: R.shadowRange,
-      top: R.shadowRange, bottom: -R.shadowRange, near: 1, far: 600 });
-    sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.035;
-    scene.add(sun, sun.target);
-    const desired = new T.Vector3(), look = new T.Vector3(), smoothedLook = new T.Vector3();
-    let initialized = false;
-    function resize() {
-      const width = Math.max(1, container.clientWidth), height = Math.max(1, container.clientHeight);
-      renderer.setSize(width, height, false); camera.aspect = width / height;
-      camera.updateProjectionMatrix();
+  const SF = window.SF, T = THREE, C = SF.CONFIG;
+  const scene = new T.Scene(), camera = new T.PerspectiveCamera(58, innerWidth / innerHeight, 0.15, C.tuning.farDistance);
+  const renderer = new T.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); renderer.setSize(innerWidth, innerHeight);
+  renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = C.tuning.exposure;
+  if ('outputColorSpace' in renderer) renderer.outputColorSpace = T.SRGBColorSpace; else renderer.outputEncoding = T.sRGBEncoding;
+  // Keep the scene on the default framebuffer; there is no offscreen shadow or post pass.
+  renderer.shadowMap.enabled = false;
+  scene.fog = new T.Fog(C.palette.horizon, 280, 1050); scene.background = new T.Color(C.palette.horizon);
+  const sun = new T.DirectionalLight(0xffd4a0, 3.15); sun.position.set(-160, 145, -220);
+  sun.castShadow = false;
+  scene.add(sun); scene.add(sun.target); scene.add(new T.HemisphereLight(0xb6bacb, 0x44332b, 0.24));
+  const flareCanvas = document.createElement('canvas'); flareCanvas.width = flareCanvas.height = 128;
+  const ctx = flareCanvas.getContext('2d'), gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gradient.addColorStop(0, 'rgba(255,255,255,1)'); gradient.addColorStop(0.12, 'rgba(255,255,255,.8)'); gradient.addColorStop(0.4, 'rgba(255,255,255,.17)'); gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gradient; ctx.fillRect(0, 0, 128, 128);
+  const flareTexture = new T.CanvasTexture(flareCanvas);
+  const standardMaterials = new Map(), basicMaterials = new Map(), spriteMaterials = new Map();
+  // Fixed shared primitives. Dimensions belong to transforms, never GPU buffers.
+  const assets = SF.assets = {
+    box: new T.BoxGeometry(1, 1, 1), plane: new T.PlaneGeometry(1, 1),
+    tire: new T.CylinderGeometry(0.37, 0.37, 0.22, 14),
+    hub: new T.CylinderGeometry(0.18, 0.18, 0.232, 12),
+    helicopter: new T.CapsuleGeometry(0.7, 2.6, 4, 8),
+    spotlight: new T.ConeGeometry(3.1, 20, 20, 1, true),
+    standard(options) {
+      const key = JSON.stringify(options);
+      if (!standardMaterials.has(key)) standardMaterials.set(key, new T.MeshStandardMaterial(options));
+      return standardMaterials.get(key);
+    },
+    basic(options) {
+      const key = JSON.stringify({ ...options, map: options.map?.uuid });
+      if (!basicMaterials.has(key)) basicMaterials.set(key, new T.MeshBasicMaterial(options));
+      return basicMaterials.get(key);
     }
-    window.addEventListener('resize', resize); resize();
-    function follow(position, heading, dt, snap) {
-      desired.set(position.x + Math.sin(heading) * K.distance, position.y + K.height,
-        position.z + Math.cos(heading) * K.distance);
-      look.set(position.x, position.y + K.lookHeight, position.z);
-      const blend = snap || !initialized ? 1 : 1 - Math.exp(-K.followRate * dt);
-      camera.position.lerp(desired, blend); smoothedLook.lerp(look, blend);
-      // Prevent the follow rig from crossing solid buildings or street furniture.
-      const collisionList = api.collisions || [];
-      let nearest = 1;
-      collisionList.forEach(b => {
-        if (b.walkable) return;
-        let low = 0, high = 1;
-        for (const axis of ['X', 'Y', 'Z']) {
-          const key = axis.toLowerCase(), delta = camera.position[key] - look[key];
-          const min = b['min' + axis] - 0.3, max = b['max' + axis] + 0.3;
-          if (Math.abs(delta) < 0.00001) {
-            if (look[key] < min || look[key] > max) { low = 2; break; }
-          } else {
-            const a = (min - look[key]) / delta, c = (max - look[key]) / delta;
-            low = Math.max(low, Math.min(a, c)); high = Math.min(high, Math.max(a, c));
-          }
-        }
-        if (low <= high && low > 0) nearest = Math.min(nearest, Math.max(0.05, low - 0.04));
-      });
-      if (nearest < 1) camera.position.lerpVectors(look, camera.position, nearest);
-      camera.lookAt(smoothedLook); initialized = true;
-      // Texel-snapped shadow focus avoids crawling as the target moves.
-      const texel = R.shadowRange * 2 / R.shadowSize;
-      const x = Math.round(position.x / texel) * texel, z = Math.round(position.z / texel) * texel;
-      sun.target.position.set(x, 0, z);
-      sun.position.set(x + R.sunPosition[0], R.sunPosition[1], z + R.sunPosition[2]);
-    }
-    function title(time, reducedMotion) {
-      const angle = -1.1 + (reducedMotion ? 0 : Math.sin(time * K.titleSpeed) * 0.45);
-      camera.position.set(-110 + Math.sin(angle) * K.titleRadius, K.titleHeight, Math.cos(angle) * K.titleRadius);
-      camera.lookAt(-30, 8, 0); initialized = false;
-    }
-    const api = { renderer, scene, camera, sun, follow, title, collisions: null,
-      draw: function () { renderer.render(scene, camera); },
-      dispose: function () {
-        window.removeEventListener('resize', resize);
-        scene.traverse(object => {
-          if (object.geometry) object.geometry.dispose();
-          if (object.material) {
-            const materials = Array.isArray(object.material) ? object.material : [object.material];
-            materials.forEach(m => m.dispose());
-          }
-        });
-        renderer.dispose(); renderer.domElement.remove();
-      }
-    };
-    return api;
   };
-
-  // Foundation preview boot. Later systems can subscribe to the semantic events
-  // and take ownership of the target, HUD and simulation without rebuilding the city.
-  function boot() {
-    const byId = id => document.getElementById(id);
-    const container = byId('viewport'), start = byId('start-screen'), hud = byId('hud');
-    let rig;
-    try {
-      rig = S.createRender(container);
-      const world = S.createWorld(rig.scene);
-      rig.collisions = world.collisions;
-      const target = Object.assign({}, world.spawn);
-      const app = S.app = { rig, world, target, mode: 'title', paused: false, time: 0 };
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-      const map = byId('minimap'), context = map.getContext('2d');
-      function drawMap() {
-        if (!context) return;
-        const size = map.width, scale = size / 190;
-        context.clearRect(0, 0, size, size); context.save();
-        context.beginPath(); context.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2); context.clip();
-        context.fillStyle = '#263537'; context.fillRect(0, 0, size, size);
-        const px = x => size / 2 + (x - target.x) * scale;
-        const pz = z => size / 2 + (z - target.z) * scale;
-        context.fillStyle = '#167f83'; context.fillRect(-1000, -1000, px(S.Config.city.seaX) + 1000, 2000);
-        context.fillStyle = '#b88b74';
-        world.city.blocks.forEach(b => context.fillRect(px(b.x - 25), pz(b.z - 25), 50 * scale, 50 * scale));
-        context.fillStyle = S.Config.palette.objective;
-        world.missionMarkers.forEach(m => {
-          context.beginPath(); context.arc(px(m.x), pz(m.z), 4, 0, Math.PI * 2); context.fill();
-        });
-        context.translate(size / 2, size / 2); context.rotate(-target.heading);
-        context.fillStyle = '#ffffff'; context.beginPath(); context.moveTo(0, -8);
-        context.lineTo(6, 7); context.lineTo(0, 4); context.lineTo(-6, 7); context.closePath(); context.fill();
-        context.restore();
-      }
-      function pause(value) {
-        if (app.mode !== 'world') return;
-        app.paused = value; byId('pause-overlay').hidden = !value;
-        hud.hidden = value;
-        if (value) byId('resume-button').focus();
-        window.dispatchEvent(new CustomEvent('sunfall:pause', { detail: value }));
-      }
-      byId('new-game').addEventListener('click', () => {
-        app.mode = 'world'; app.paused = false; start.hidden = true; hud.hidden = false;
-        rig.follow(target, target.heading, 0, true); drawMap();
-        byId('objective-text').textContent = 'Solano Bay · World foundation';
-        byId('action-text').textContent = 'City preview · Gameplay arrives in the next build';
-        window.dispatchEvent(new CustomEvent('sunfall:new-game', { detail: app }));
-      });
-      byId('how-button').addEventListener('click', () => { byId('how-overlay').hidden = false; byId('close-how').focus(); });
-      byId('close-how').addEventListener('click', () => { byId('how-overlay').hidden = true; byId('how-button').focus(); });
-      byId('resume-button').addEventListener('click', () => pause(false));
-      byId('title-button').addEventListener('click', () => {
-        app.mode = 'title'; app.paused = false; byId('pause-overlay').hidden = true;
-        hud.hidden = true; start.hidden = false; byId('new-game').focus();
-      });
-      window.addEventListener('keydown', event => {
-        if (event.repeat) return;
-        if (event.code === 'Escape' && !byId('how-overlay').hidden) {
-          byId('close-how').click(); return;
-        }
-        if (event.code === 'Escape' || event.code === 'KeyP') { event.preventDefault(); pause(!app.paused); }
-      });
-      document.addEventListener('visibilitychange', () => { if (document.hidden) pause(true); });
-      window.addEventListener('sunfall:district', event => { byId('district-name').textContent = event.detail.name; });
-      let previous = performance.now();
-      function frame(now) {
-        const dt = Math.min(S.Config.tuning.maxDelta, Math.max(0, (now - previous) / 1000)); previous = now;
-        if (!app.paused) {
-          app.time += dt; world.update(app.time, app.mode === 'world' ? target : null);
-          if (app.mode === 'title') rig.title(app.time, reduceMotion.matches);
-          else { rig.follow(target, target.heading, dt); drawMap(); }
-        }
-        rig.draw(); app.frame = requestAnimationFrame(frame);
-      }
-      byId('loading-note').textContent = 'A city at the edge of night';
-      byId('new-game').disabled = false;
-      app.frame = requestAnimationFrame(frame);
-    } catch (error) {
-      if (rig) rig.dispose();
-      byId('loading-note').textContent = 'The city could not start. Enable WebGL and reload to try again.';
-      byId('loading-note').setAttribute('role', 'alert');
-      console.error('Sunfall foundation could not start:', error);
-    }
+  [0xffcf86, 0xff0011, 0x064fff, 0xffe9a0, 0xffbf59].forEach(colorHex => {
+    spriteMaterials.set(colorHex, new T.SpriteMaterial({ map: flareTexture, color: colorHex, opacity: colorHex === 0xff0011 || colorHex === 0x064fff ? 0.8 : 1, blending: T.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false }));
+  });
+  function makeFlare(colorHex, size) {
+    const sprite = new T.Sprite(spriteMaterials.get(colorHex));
+    sprite.scale.set(size, size, 1); return sprite;
   }
-  // The gameplay runtime owns boot and the single animation loop.
-})(window.Sunfall = window.Sunfall || {});
+  // These hierarchies remain the authoritative animation and raycast targets.
+  // Only their shared instance batches enter the render scene.
+  const actors = new Map(), batches = new Map(), lightSources = new Map();
+  const lightPool = Array.from({ length: 8 }, () => {
+    const light = new T.PointLight(0xffffff, 0, 18); scene.add(light); return light;
+  });
+  function batchActor(root) {
+    const parts = [];
+    root.traverse(part => { if (part.isMesh) parts.push(part); });
+    root.removeFromParent(); actors.set(root, parts);
+    root.userData.batchedActor = true;
+  }
+  function unbatchActor(root) {
+    actors.delete(root); lightSources.delete(root); root.userData.batchedActor = false;
+  }
+  function addVehicleLight(root, color, intensity, range, x, y, z) {
+    if (!lightSources.has(root)) lightSources.set(root, []);
+    lightSources.get(root).push({ color, intensity, range, local: new T.Vector3(x, y, z), world: new T.Vector3(), distance: 0 });
+  }
+  function prepare() {
+    for (const batch of batches.values()) batch.parts.length = 0;
+    for (const [root, parts] of actors) {
+      root.updateMatrixWorld(true);
+      if (!root.visible) continue;
+      for (const part of parts) {
+        let visible = true;
+        for (let p = part; p; p = p.parent) if (!p.visible) { visible = false; break; }
+        if (!visible) continue;
+        const key = part.geometry.uuid + ':' + part.material.uuid;
+        if (!batches.has(key)) batches.set(key, { parts: [], mesh: null });
+        batches.get(key).parts.push(part);
+      }
+    }
+    for (const batch of batches.values()) {
+      const count = batch.parts.length;
+      if (count && (!batch.mesh || batch.mesh.instanceMatrix.count < count)) {
+        if (batch.mesh) { scene.remove(batch.mesh); batch.mesh.dispose(); }
+        const capacity = Math.max(16, 2 ** Math.ceil(Math.log2(count)));
+        const first = batch.parts[0];
+        batch.mesh = new T.InstancedMesh(first.geometry, first.material, capacity);
+        batch.mesh.instanceMatrix.setUsage(T.DynamicDrawUsage);
+        batch.mesh.userData.dynamicActors = true;
+        // Actors can move anywhere; a stale static bounding sphere must never hide them.
+        batch.mesh.frustumCulled = false; scene.add(batch.mesh);
+      }
+      if (!batch.mesh) continue;
+      const mesh = batch.mesh, data = mesh.instanceMatrix.array;
+      let changed = mesh.count !== count;
+      mesh.count = count;
+      for (let i = 0; i < count; i++) {
+        const elements = batch.parts[i].matrixWorld.elements;
+        for (let j = 0; j < 16; j++) {
+          const value = Math.fround(elements[j]);
+          if (data[i * 16 + j] !== value) { data[i * 16 + j] = value; changed = true; }
+        }
+      }
+      if (changed) mesh.instanceMatrix.needsUpdate = true;
+    }
+    const nearby = [];
+    for (const [root, sources] of lightSources) {
+      if (!root.visible) continue;
+      // Patrols still use native scene hierarchies; batched actors were updated above.
+      if (!actors.has(root)) root.updateMatrixWorld(true);
+      for (const source of sources) {
+        source.world.copy(source.local).applyMatrix4(root.matrixWorld);
+        source.distance = source.world.distanceToSquared(camera.position);
+        if (source.distance < (source.range + 25) ** 2) nearby.push(source);
+      }
+    }
+    nearby.sort((a, b) => a.distance - b.distance);
+    lightPool.forEach((light, i) => {
+      const source = nearby[i];
+      light.intensity = source ? source.intensity : 0;
+      if (source) { light.position.copy(source.world); light.color.set(source.color); light.distance = source.range; }
+    });
+  }
+  const rig = { mode: 'title', target: new T.Vector3(), heading: 0, distance: 9, height: 4.5, initialized: false };
+  const look = new T.Vector3(), desired = new T.Vector3(), focus = new T.Vector3();
+  const render = SF.render = { renderer, scene, camera, rig, sun, makeFlare, prepare,
+    batchActor, unbatchActor, addVehicleLight,
+    follow(position, heading, dt) {
+      rig.mode = 'follow'; rig.target.copy(position); rig.heading = heading;
+      desired.set(position.x - Math.sin(heading) * rig.distance, position.y + rig.height, position.z - Math.cos(heading) * rig.distance);
+      focus.set(position.x, position.y + 1.5, position.z);
+      const alpha = 1 - Math.exp(-6 * Math.min(dt, 0.1));
+      if (!rig.initialized) { camera.position.copy(desired); look.copy(focus); rig.initialized = true; }
+      camera.position.lerp(desired, alpha); look.lerp(focus, alpha); camera.lookAt(look);
+      sun.target.position.copy(position); sun.position.set(position.x - 160, position.y + 145, position.z - 220);
+    },
+    titleSweep(seconds) {
+      camera.position.set(-315 + Math.sin(seconds * 0.045) * 85, 83 + Math.sin(seconds * 0.06) * 8, -345 + Math.cos(seconds * 0.045) * 30);
+      camera.lookAt(-190, 8, -125); sun.target.position.set(-220, 0, -125); sun.position.set(-380, 145, -345);
+    }
+  };
+  const sunDisc = makeFlare(0xffcf86, 115); sunDisc.position.set(-650, 260, -1100); scene.add(sunDisc);
+  function resize() { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); }
+  addEventListener('resize', resize);
+}());

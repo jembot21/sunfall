@@ -1,54 +1,27 @@
-/* Sunfall foundation. World units are metres; Y is up, the coast is west. */
-(function (S) {
+(function () {
   'use strict';
-  S.Config = Object.freeze({
-    seed: 2047,
-    palette: Object.freeze({
-      skyAmber: 0xffba68, skyCoral: 0xed796d, skyViolet: 0x554975,
-      sea: 0x117f83, seaHighlight: 0x49b5ac, sand: 0xdca96b,
-      concrete: 0xc99373, asphalt: 0x51424a, sidewalk: 0xb88b74,
-      cash: '#ffc56b', danger: '#ff7069', objective: '#50ebce',
-      window: 0xffcf80, ink: '#171b2c', fog: 0xc48079
-    }),
-    city: Object.freeze({
-      columns: 9, rows: 9, block: 64, road: 14, sidewalk: 4,
-      minX: -288, maxX: 288, minZ: -288, maxZ: 288,
-      coastX: -310, beachWidth: 48, seaX: -358, groundY: 0,
-      buildingInset: 10, floorHeight: 3.4, lampSpacing: 64
-    }),
-    districts: Object.freeze([
-      { id: 'palma', name: 'Palma Strand', col: [0, 2], row: [0, 3],
-        colors: [0xe3a36e, 0xd57869, 0xc6a05d], height: [7, 16], density: 0.78,
-        props: { palms: 0.95, benches: 0.7, crates: 0.05 } },
-      { id: 'marina', name: 'Marina', col: [0, 2], row: [4, 8],
-        colors: [0xc58371, 0x5e9994, 0xd8ac7b], height: [9, 23], density: 0.88,
-        props: { palms: 0.8, benches: 0.7, crates: 0.25 } },
-      { id: 'oldtown', name: 'Old Town', col: [3, 5], row: [0, 3],
-        colors: [0xc9694f, 0xd59659, 0xa96164], height: [10, 22], density: 0.96,
-        props: { palms: 0.4, benches: 0.65, crates: 0.2 } },
-      { id: 'downtown', name: 'Downtown', col: [3, 5], row: [4, 8],
-        colors: [0x547c86, 0xa06e78, 0x9b826e], height: [25, 78], density: 0.98,
-        props: { palms: 0.55, benches: 0.7, crates: 0.1 } },
-      { id: 'hillcrest', name: 'Hillcrest', col: [6, 8], row: [0, 3],
-        colors: [0xd8a477, 0xbd826b, 0xb39970], height: [7, 18], density: 0.7,
-        props: { palms: 0.85, benches: 0.3, crates: 0.05 } },
-      { id: 'port', name: 'Ironworks Port', col: [6, 8], row: [4, 8],
-        colors: [0x966354, 0x647f7c, 0xb77e48], height: [8, 25], density: 0.88,
-        props: { palms: 0.1, benches: 0.1, crates: 0.95 } }
-    ]),
-    render: Object.freeze({
-      fov: 58, near: 0.2, far: 1450, pixelRatio: 1.75,
-      fogNear: 170, fogFar: 920, exposure: 0.92,
-      shadowSize: 1024, shadowRange: 145, sunIntensity: 1.8,
-      hemisphereIntensity: 0.7, sunPosition: [-190, 150, -110]
-    }),
-    camera: Object.freeze({
-      distance: 10, height: 5, lookHeight: 1.5, followRate: 5,
-      titleRadius: 410, titleHeight: 175, titleSpeed: 0.025
-    }),
-    water: Object.freeze({ amplitude: 0.32, speed: 0.7, segments: 60 }),
-    spawn: Object.freeze({ x: -224, y: 0.2, z: -249, heading: Math.PI }),
-    tuning: Object.freeze({ trafficSpacing: 64, pedestrianSpacing: 32,
-      districtCheckInterval: 0.25, markerHeight: 3, maxDelta: 0.05 })
-  });
-})(window.Sunfall = window.Sunfall || {});
+  const SF = window.SF = window.SF || {};
+  SF.CONFIG = {
+    seed: 30719,
+    palette: { sky: 0xe9a05d, horizon: 0xdb7865, zenith: 0x655475, sea: 0x146d70, asphalt: 0x302923, sidewalk: 0xb9a48b, curb: 0xe5cdb0, cash: '#ffc16a', danger: '#ff766c', objective: '#49e7d2' },
+    street: { blockSize: 84, roadWidth: 16, laneWidth: 4, sidewalkWidth: 5, columns: 9, rows: 6 },
+    tuning: { ambientTrafficCount: 72, parkedCarFillRate: 0.78, exposure: 0.92, farDistance: 1250 },
+    districts: [
+      { name: 'Palma Strand', colors: [0xb96940, 0x984c3d, 0xc59860], density: 1.0, pedestrians: 90, heights: [10, 25], props: ['palm', 'bench', 'planter', 'bin', 'bus', 'news'] },
+      { name: 'Marina', colors: [0x698e82, 0xb98b58, 0x427d7b], density: 0.8, pedestrians: 64, heights: [12, 32], props: ['palm', 'bench', 'planter', 'sign', 'bin'] },
+      { name: 'Old Town', colors: [0x994b32, 0xc09a60, 0x866352], density: 0.87, pedestrians: 72, heights: [12, 27], props: ['bench', 'news', 'planter', 'bin', 'sign'] },
+      { name: 'Downtown', colors: [0x89745f, 0x526e70, 0x9c6254], density: 0.91, pedestrians: 78, heights: [30, 94], props: ['bus', 'news', 'bin', 'planter', 'sign'] },
+      { name: 'Hillcrest', colors: [0xb18b58, 0x77794e, 0xa66458], density: 0.55, pedestrians: 40, heights: [9, 22], props: ['palm', 'planter', 'bench', 'sign'] },
+      { name: 'Ironworks Port', colors: [0x75523c, 0x737367, 0x994e32], density: 0.65, pedestrians: 36, heights: [10, 30], props: ['crate', 'barrel', 'bin', 'sign'] }
+    ],
+    VEHICLE_TYPES: [
+      { name: 'Vireo Coupe', speed: 42, handling: 0.9, color: 0xcd6249 },
+      { name: 'Meridian Sedan', speed: 36, handling: 0.78, color: 0x668c91 },
+      { name: 'Solano Cab', speed: 35, handling: 0.8, color: 0xe9ae36, taxi: true },
+      { name: 'Hauler Pickup', speed: 32, handling: 0.65, color: 0x73876a },
+      { name: 'Cargo Van', speed: 28, handling: 0.56, color: 0xdec9a4 },
+      { name: 'Tide Runner GT', speed: 56, handling: 1.05, color: 0x28b6a5 }
+    ],
+    policeCallsigns: { ground: ['PATROL 2', 'PATROL 5', 'UNIT 7', 'UNIT 9', 'UNIT 12'], roadblock: ['BLOCKADE 1', 'BLOCKADE 2'], air: ['AIR ONE'] }
+  };
+}());

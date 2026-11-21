@@ -1,60 +1,94 @@
-/* Connect the city renderer and gameplay systems through one live runtime. */
 (() => {
-  'use strict';
-  const SF = window.SF, S = window.Sunfall;
-  if (THREE.ColorManagement) THREE.ColorManagement.legacyMode = false;
-  SF.THREE = THREE;
-  SF.CONFIG = { ...S.Config, tuning: { ...S.Config.tuning, blockSize: 64, sidewalkOffset: 9 } };
-  const anchors = {'Palma Strand':[-224,-224], 'Old Harbor':[224,96], 'Mirador Heights':[160,-224], 'Cinder Flats':[224,224], 'Glasspoint':[-32,96], 'Mariner Row':[-288,96]};
-  const seen=new Set();
-  function place(point) {
-    if (!point || seen.has(point)) return;
-    seen.add(point);
-    const a=anchors[point.district] || [-224,-224];
-    point.x=a[0]; point.z=a[1]+Math.round((point.z%37)/2); point.y=.24;
+  const SF = globalThis.SF ||= {};
+  const state = SF.state = {
+    mode: 'menu', elapsed: 0, district: null, cash: 0, storyDone: 0,
+    unlocks: [], safehouse: null
+  };
+  function update(system, ...args) {
+    const tick = system?.update || system?.step;
+    if (typeof tick === 'function') tick.apply(system, args);
   }
-  SF.missions.districts.forEach(d=>{const a=anchors[d.name]; d.x=a[0];d.z=a[1];});
-  SF.missions.story.forEach(m=>{m.path.forEach(place);m.stages.forEach(o=>place(o.target));});
-  SF.missions.activities.forEach(m=>{place(m.marker);place(m.destination);});
-  SF.world = { build() {
-    const rig = S.createRender(document.getElementById('viewport'));
-    const world = S.createWorld(rig.scene);
-    Object.assign(SF.world, world);
-    SF.city = world.city;
-    SF.city.streetGrid = { x: Array.from({length:10}, (_,i)=>-288+i*64), z: Array.from({length:10}, (_,i)=>-288+i*64) };
-    SF.city.buildings = world.collisions.filter(b=>b.kind==='building');
-    rig.collisions = world.collisions;
-    SF.render = rig;
-    SF.player.init();
-    SF.missions.story[0].stages[0].target.z=-225;
-    SF.missions.story[0].stages[0].target.x=-215;
-    SF.missions.story[0].stages[1].target.z=-195;
-    SF.missions.story[0].path[0]=SF.missions.story[0].stages[0].target;
-    SF.missions.story[0].path[1]=SF.missions.story[0].stages[1].target;
-    document.getElementById('start-screen').hidden = true;
-    const marker = new THREE.Group();
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.3,.13,8,40), new THREE.MeshBasicMaterial({color:0x50ebce}));
-    ring.rotation.x = -Math.PI/2; marker.add(ring);
-    const beacon = new THREE.Mesh(new THREE.CylinderGeometry(.08,.08,9,8), new THREE.MeshBasicMaterial({color:0x50ebce,transparent:true,opacity:.5}));
-    beacon.position.y=4.5; marker.add(beacon); rig.scene.add(marker);
-    SF.world.objectiveMarker=marker;
-    const contact=SF.player.figure({shirt:0xdbc08b,pants:0x39444b});
-    contact.position.set(-213,.24,-224);contact.rotation.y=Math.PI;
-    rig.scene.add(contact);
-    rig.render = function () {
-      const state=SF.main?.state;
-      if (state?.playing) {
-        if (!SF._captureScene) rig.follow(SF.player.position, SF.input.yaw, .016);
-        world.update(state.time, SF.player.position);
-      } else rig.title(state?.time || 0, true);
-      const target=SF.missions.active?.nearestMarker;
-      marker.visible=!!target;
-      if(target) marker.position.set(target.x,.3,target.z);
-      contact.userData.animate(.016,0);
-      const sky=rig.scene.getObjectByName('Solano sunset sky');
-      if(sky) sky.position.copy(rig.camera.position);
-      rig.draw();
-    };
-    SF.vehicles.spawn('sedan', {x:-227,y:.1,z:-235});
-  }};
+  const runtime = SF.runtime = {
+    vehicle() {
+      const player = SF.player;
+      return player?.vehicle || player?.inVehicle || SF.vehicles?.current || null;
+    },
+    position() {
+      const car = this.vehicle();
+      return car?.mesh?.position || car?.position || SF.player?.mesh?.position || SF.player?.position;
+    },
+    wanted() {
+      const police = SF.police;
+      return Number(police?.stars ?? police?.wanted?.stars ?? police?.wantedLevel ?? police?.wanted) || 0;
+    },
+    start(save = null) {
+      const spawn = SF.player?.mesh?.position || SF.player?.position;
+      const home = SF.world?.safehouse || SF.world?.spawn || spawn;
+      state.safehouse = save?.safehouse ?? (home ? { x: home.x, y: home.y, z: home.z } : null);
+      const start = save?.safehouse || SF.world?.spawn;
+      if (start) {
+        SF.player?.position?.set?.(start.x, start.y ?? 0, start.z);
+        SF.player?.mesh?.position?.set?.(start.x, start.y ?? 0, start.z);
+        const heading = Number.isFinite(start.heading) ? start.heading : SF.player?.heading;
+        if (Number.isFinite(heading) && SF.player) {
+          SF.player.heading = heading;
+          if (SF.player.mesh) SF.player.mesh.rotation.y = heading;
+          if (SF.input) SF.input.yaw = heading + Math.PI;
+        }
+      }
+      state.elapsed = 0;
+      state.cash = save?.cash ?? 0;
+      if (SF.player) SF.player.cash = state.cash;
+      state.storyDone = save?.storyDone ?? 0;
+      state.unlocks = Array.isArray(save?.unlocks) ? [...save.unlocks] : [];
+      SF.phone.clear();
+      SF.missions.reset(state.storyDone, state.cash);
+      SF.missions.startStory();
+      state.mode = 'play';
+      SF.save.store();
+    },
+    step(dt) {
+      dt = Math.min(0.05, Math.max(0, dt));
+      if (SF.input.pressed('Escape') || SF.input.pressed('KeyP')) {
+        if (state.mode === 'play') {
+          state.mode = 'pause';
+          document.exitPointerLock?.();
+        } else if (state.mode === 'pause') state.mode = 'play';
+      }
+      SF.phone.update();
+      if (state.mode === 'play') {
+        state.elapsed += dt;
+        update(SF.player, dt);
+        update(SF.vehicles, dt);
+        update(SF.traffic, dt);
+        update(SF.peds, dt);
+        const fired = SF.weapons?.shots;
+        const shotCount = Array.isArray(fired) ? fired.length : fired;
+        update(SF.weapons, dt);
+        const shots = SF.weapons?.shots;
+        if ((Array.isArray(shots) ? shots.length : shots) > shotCount) SF.audio.gunshot();
+        update(SF.police, dt);
+        if (Number.isFinite(SF.player?.cash)) {
+          state.cash = SF.player.cash;
+          SF.missions.cash = state.cash;
+        }
+        const pos = this.position();
+        if (pos) {
+          const district = SF.city?.districtAt?.(pos.x, pos.z) ?? SF.world?.districtAt?.(pos.x, pos.z);
+          state.district = district?.name ?? district ?? state.district ?? 'Palma Strand';
+        }
+        SF.missions.update(dt, pos, Boolean(this.vehicle()), this.wanted());
+        if (SF.player?.busted || SF.police?.busted) state.mode = 'busted';
+        else if (SF.player?.health <= 0 || SF.player?.dead) state.mode = 'wasted';
+        if (state.mode !== 'play') document.exitPointerLock?.();
+      }
+      SF.audio.update({
+        playing: state.mode === 'play', driving: Boolean(this.vehicle()),
+        walking: ['KeyW', 'KeyA', 'KeyS', 'KeyD'].some(SF.input.isDown),
+        speed: Number(this.vehicle()?.speed) || 0, wanted: this.wanted()
+      });
+      update(SF.hud, dt);
+      SF.input.endFrame();
+    }
+  };
 })();
