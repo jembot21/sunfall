@@ -1,18 +1,6 @@
 [
-  {
-    "name": "1-chase.jpg",
-    "query": "?shot=0"
-  },
-  {
-    "name": "2-downtown.jpg",
-    "query": "?shot=1"
-  },
-  {
-    "name": "3-coast.jpg",
-    "query": "?shot=2"
-  },
-  {
-    "name": "4-end.jpg",
-    "query": "?shot=3"
-  }
+  {"name":"1-chase.jpg","query":"?shot=0"},
+  {"name":"2-street.jpg","query":"?shot=1"},
+  {"name":"3-drive.jpg","query":"?shot=2"},
+  {"name":"4-mission.jpg","query":"?shot=3"}
 ]

@@ -3,7 +3,7 @@
   var fleet = [], cars = SF.vehicles.list, grid = SF.vehicles.step;
   var head = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
   var dx = [0, 1, 0, -1], dz = [1, 0, -1, 0];
-  var lane = 4, edge = SF.vehicles.half + 22, frame = 0, targetCount = 14;
+  var lane = 4, edge = SF.vehicles.half + 22, frame = 0, targetCount = 16;
   function place(state, initial) {
     var car = state.car, dir = Math.floor(SF.random.next() * 4);
     var center = (Math.floor(SF.random.next() * 6) - 3) * grid + grid / 2;
@@ -18,7 +18,7 @@
     state.turn = -1; state.cruise = 13 + SF.random.next() * 7;
   }
   for (var n = 0; n < 26; n++) {
-    var car = SF.vehicles.create(0, 0, 0, n % 5);
+    var car = SF.vehicles.create(0, 0, 0, n % SF.vehicles.defs.length);
     var slot = {car: car, dir: 0, cross: 0, turn: -1, wait: 0, blocked: 0, dt: 0, cruise: 15};
     fleet.push(slot);
     if (n < targetCount) place(slot, true);

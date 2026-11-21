@@ -1,40 +1,42 @@
-# Sunfall
+# Sunfall v2 — Solano Bay
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/jembot21/sunfall/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/jembot21/sunfall/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
+Explore Solano Bay, an original coastal city with six districts, eight story missions, six vehicle kinds, a five-level wanted system, four repeatable side activities, and local saved progress.
 
-Solano Bay glows beneath a permanent coastal sunset. As Dario Venn, leave your Palma Strand flat, steal a ride, meet a crew, and build a reputation across a vivid city of beachfront roads, harbour yards, markets, towers, and hillside streets. Explore on foot or by car, take repeatable jobs, and survive the Bay Patrol while working toward the final score.
+Take on jobs for the bay's crew, drive through the evening traffic, and shake the Bay Patrol when a crime draws attention. The game uses procedural city geometry, local assets, and synthesized audio.
 
-- Eight districts: Palma Strand, Old Port, Downtown, Marina, Market Row, The Hills, Airport Flats, and North Beach.
-- Eight sequential story missions with Marco Reyes, Lena Voss, and Tia Navarro, plus courier, street race, stash, and passenger jobs.
-- Six stealable vehicle types, fixed-substep driving, ambient traffic, and pedestrians who flee and witness crimes.
-- Fists, P9 Sidearm, Hornet SMG, Bulldog Scatter, and Longshot Rifle; weapon unlocks, ammunition, and a Market Row gun shop.
-- Five wanted levels, patrol cars, officers, roadblocks, helicopter pursuit, and line-of-sight escapes.
-- Three original synthesized radio stations, synthesized effects, minimap, city map, vehicle dashboard, and crew dialogue.
-- Cash, reputation ranks, safehouse progression, local saves, and recovery after arrest or injury.
+## Controls
 
-| Control | Action |
+| Input | Action |
 | --- | --- |
 | WASD / arrows | Walk or drive |
-| Mouse | Look / aim |
-| Left mouse | Fire / punch |
-| Shift | Sprint |
+| Mouse | Look and aim |
+| Left mouse | Fight |
+| Shift | Run |
 | Space | Jump / handbrake |
-| E | Enter / exit vehicle, start nearby job, shop, recover |
-| 1–5 | Equip weapon |
+| E | Enter or exit a car; accept a nearby job |
+| 1–5 | Select a weapon |
 | R | Reload |
-| N | Next radio station while driving |
-| M | Toggle north-up city map (world continues) |
-| Esc / P | Pause / resume |
-| Shop 1–4 / 5–8 | Buy weapons / ammunition |
+| N | Change the car radio |
+| M | Toggle the city map |
+| Esc / P | Pause and resume |
 
-Run `node serve.ts --port 8080` with Node 22.18+ and open `http://127.0.0.1:8080`. Alternatively, serve the `game` directory with any static HTTP server. Click the start screen to enable mouse capture and audio. Use the pause menu to save manually. Jobs and purchases save automatically. Progress is stored locally under `sunfall-save-v1`; screenshot modes do not load or write your save.
+## Mission loop and saves
 
-There is no build step. The game uses classic JavaScript scripts, vendored Three.js r149, procedural geometry, canvas textures, and WebAudio synthesis. All runtime resources are local; the game makes no external network requests. Audio starts only after a user gesture. Desktop keyboard and mouse are required. A VM smoke test validates module loading and core state, but does not establish real browser rendering, audio quality, or GPU performance.
+Find the next crew marker, press E to accept the job, and follow the objective tracker through its stages. Story jobs pay cash and reputation and can unlock weapons and safehouses; side activities can be repeated. Progress and purchases save in the browser's local storage, with manual saving available at unlocked safehouses.
 
-Run `node tests/smoke.cjs` for module, boot, screenshot-state, input, save, and mission-engine checks. Run `node --check game/src/FILE.js` for syntax checks. `main.ts` packages the game for the bounty environment; it is separate from the browser entry point `game/src/main.js`.
+## Run locally
 
-For deterministic capture staging, open `?shot=0` (on foot in Market Row), `?shot=1` (fast stolen-car drive Downtown), `?shot=2` (four-star pursuit with helicopter), or `?shot=3` (armed mission moment with Lena dialogue). These modes freeze a staged scene with its full HUD so the four views are reproducible. Ordinary play has no query parameter.
+Use Node 22.18 or newer:
 
-Sunfall's setting, characters, story, vehicles, brands, music patterns, geometry, and presentation are original. It contains no Rockstar or Grand Theft Auto assets, names, characters, maps, or audio. Three.js retains its upstream license in the vendored distribution.
+```sh
+node serve.ts --port 8080
+```
+
+Open `http://127.0.0.1:8080`, then click the title screen to enter the city and enable audio. There is no build step. The game loads its scripts and vendored Three.js from `game/` and makes no external runtime requests.
+
+Run `node tests/smoke.cjs` for module, input, save, mission, and staged-capture state checks. `node main.ts` packages `game/`, `screenshots/`, and `dossier.json` into `MAKEFUN_OUTPUT_DIR` (default `/output`).
+
+The four reviewed JPEGs are staged with `?shot=0` through `?shot=3`; ordinary play has no screenshot query parameter. They are captured at 1280×720 from the rendered WebGL game.

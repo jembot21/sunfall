@@ -2,9 +2,9 @@
   'use strict';
   function boot(){
     var player=SF.player,input=SF.input,canvas=document.getElementById('game'),start=document.getElementById('start-screen'),pause=document.getElementById('pause');
-    var started=false,paused=false,shopOpen=false,endKind='',endTime=0,last=0,clock=0,clockTick=0,day=1,district='',previousCar=null,interact=false;
+    var started=false,paused=false,shopOpen=false,endKind='',endTime=0,last=0,clock=0,clockTick=0,day=1,district='',previousCar=null,interact=false,titleCamera=0;
     var pauseCard=pause.querySelector('.overlay-card'),saveButton=document.createElement('button'),resumeButton=document.createElement('button');
-    saveButton.textContent='Save game';resumeButton.textContent='Resume';pauseCard.appendChild(saveButton);pauseCard.appendChild(resumeButton);
+    saveButton.textContent='Save at safehouse';resumeButton.textContent='Resume';pauseCard.appendChild(saveButton);pauseCard.appendChild(resumeButton);
     var shop=document.createElement('div');shop.id='shop';shop.className='panel';shop.style.cssText='display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(460px,90vw);pointer-events:auto;background:#211a35;z-index:20;max-height:85vh;overflow:auto';
     var title=document.createElement('h2');title.textContent='MARKET ROW · BAY OUTFITTERS';shop.appendChild(title);
     var note=document.createElement('p');note.textContent='1–4 buy a weapon · 5–8 buy three magazines ($75) · E / Esc close';shop.appendChild(note);
@@ -24,13 +24,22 @@
     var storeMarker=new THREE.Mesh(new THREE.CylinderGeometry(3,3,5,12,1,true),new THREE.MeshBasicMaterial({color:0xc98aff,transparent:true,opacity:0.4,depthWrite:false,side:THREE.DoubleSide}));storeMarker.position.set(205,2.5,10);SF.render.scene.add(storeMarker);
     var clinic=new THREE.Mesh(new THREE.BoxGeometry(1,3,1),new THREE.MeshBasicMaterial({color:0x78f2bd}));clinic.position.set(-117,1.5,123);SF.render.scene.add(clinic);
     function requestLock(){if(canvas.requestPointerLock){var result=canvas.requestPointerLock();if(result&&result.catch)result.catch(function(){SF.hud.toast('Click the world to capture the mouse');});}}
+    function nearSafehouse(){
+      for(var i=0;i<player.safehouses.length;i++){
+        var home=player.safehouses[i],dx=player.pos.x-home.x,dz=player.pos.z-home.z;
+        if(dx*dx+dz*dz<12*12)return true;
+      }
+      return false;
+    }
     function setPause(value){
       if(!started||endKind||SF.shots.active)return;paused=value;pause.style.display=value?'grid':'none';SF.audio.pause(value);
-      if(value){SF.save.save();if(document.exitPointerLock)document.exitPointerLock();}else requestLock();
+      saveButton.disabled=!nearSafehouse();
+      saveButton.style.opacity=saveButton.disabled?'.45':'1';
+      if(value){if(document.exitPointerLock)document.exitPointerLock();}else requestLock();
     }
     function toggleShop(value){shopOpen=value;interact=false;input.pressed('enter');shop.style.display=value?'block':'none';if(value){SF.audio.pause(true);if(document.exitPointerLock)document.exitPointerLock();}else{SF.audio.pause(false);requestLock();}}
-    saveButton.addEventListener('click',function(){if(SF.save.save())SF.hud.toast('Game saved');});resumeButton.addEventListener('click',function(){setPause(false);});
-    start.addEventListener('click',function(){if(started)return;started=true;start.style.display='none';SF.audio.unlock();SF.audio.engine(!!player.inCar);requestLock();});
+    saveButton.addEventListener('click',function(){if(!nearSafehouse()){SF.hud.toast('Return to a safehouse to save.');return;}if(SF.save.save())SF.hud.toast('Saved at the safehouse');});resumeButton.addEventListener('click',function(){setPause(false);});
+    start.addEventListener('click',function(){if(started)return;started=true;player.respawn(0);start.style.display='none';SF.audio.unlock();SF.audio.engine(!!player.inCar);requestLock();});
     document.addEventListener('pointerlockchange',function(){if(started&&!input.locked&&!shopOpen&&!SF.shots.active&&!endKind)setPause(true);});
     window.addEventListener('keydown',function(event){
       if(event.repeat)return;
@@ -60,8 +69,7 @@
       var name=SF.world.districtAt(player.pos.x,player.pos.z);if(name!==district){district=name;SF.hud.toast(name);}else if(shopNear())SF.hud.toast('E — Gun Shop');
     }
     SF.day=1;if(!SF.shots.active)SF.save.load();day=SF.day||1;player.respawn(0);
-    // Session A/B modules already construct parked cars, traffic, and pedestrians.
-    // This guaranteed cruiser makes the opening job immediately legible.
+    // Seed a clean first ride beside the Palma Strand safehouse.
     SF.vehicles.create(-269,42,0,1);
     SF.missions.update(0.15);SF.hud.setClock(day,'17:40');SF.hud.refresh();start.style.display='grid';
     SF.render.renderer.compile(SF.render.scene,SF.render.camera);
@@ -82,11 +90,22 @@
             if(!SF.weapons.cur&&oldReady<=0&&SF.weapons.timeToReady>0)SF.audio.punch();
             if(previousCar!==player.inCar){previousCar=player.inCar;SF.audio.engine(!!previousCar);if(!previousCar)SF.audio.radioStop();}
             updateClock(dt);
+            var prompt='';
+            if(player.inCar)prompt='Exit vehicle';
+            else if(!SF.missions.active&&SF.missions.nearest&&Math.hypot(player.pos.x-SF.missions.nearest.x,player.pos.z-SF.missions.nearest.z)<5)prompt='Talk to '+SF.missions.nearest.giver+' · '+SF.missions.nearest.title;
+            else if(SF.vehicles.nearestEnterable(player.pos.x,player.pos.z,4.2))prompt='Enter nearby vehicle';
+            SF.hud.prompt(prompt);
             if(player.health<=0)end('wasted');else if(SF.police.pressure>=1)end('busted');
           }
         }else if(endKind){endTime+=dt;if(interact&&endTime>1.2)recover();interact=false;}
-        else {interact=false;input.pressed('enter');}
+        else {interact=false;input.pressed('enter');SF.hud.prompt('');}
         input.clearLook();SF.audio.update(dt);SF.hud.update(dt);
+        if(!started){
+        // One deliberate title-shot sweep; gameplay cameras remain action-driven.
+        titleCamera=time*0.000035;
+        SF.render.camera.position.set(-355+Math.sin(titleCamera)*24,64+Math.sin(titleCamera*.65)*3,285-Math.cos(titleCamera)*20);
+        SF.render.camera.lookAt(-42,13,-25);
+        }
       }
       SF.render.update(dt,player.pos);
     }

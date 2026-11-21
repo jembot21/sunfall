@@ -55,6 +55,10 @@ function boot(search='') {
   const SF=sandbox.SF;
   for(const name of ['CONFIG','input','render','world','city','vehicles','traffic','peds','weapons','police','player','missions','hud','audio','save'])assert.ok(SF[name],name+' exists');
   assert.equal(SF.weapons.defs.length,5);assert.equal(SF.missions.list.length,8);
+  assert.equal(SF.CONFIG.districts.length,6);assert.equal(SF.missions.storyCount,8);
+  assert.equal(new Set(SF.vehicles.defs.map(vehicle=>vehicle.kind)).size,6,'the traffic pool has six different vehicle kinds');
+  assert.ok(SF.missions.sideJobs.some(job=>job.id==='fare'&&job.stages[0].type==='fare'),'repeatable taxi fare exists');
+  assert.ok(SF.missions.sideJobs.some(job=>job.id==='streetrace'),'repeatable street race exists');
   for(const fn of events.DOMContentLoaded || [])fn();
   assert.equal(renderer.compiled,true,'shaders compiled before play');assert.equal(typeof renderer.frame,'function');
   return {SF,events,renderer,storage,elements,sandbox};
@@ -106,11 +110,18 @@ for(let index=0;index<8;index++){
 assert.equal(game.weapons.owned[4],true,'rooftop stage unlocks the rifle');
 assert.equal(game.player.cash,29350,'all story payouts are applied exactly once');
 game.missions.start(game.missions.sideJobs[0]);game.missions.update(101);assert.equal(game.missions.active,null,'timed deliveries fail cleanly');
+const fareRun=boot(),fareGame=fareRun.SF,fareStart=fareGame.player.cash;
+assert.equal(fareGame.missions.start(fareGame.missions.sideJobs.find(job=>job.id==='fare')),true);
+assert.equal(fareGame.missions.stage().type,'fare');
+const taxi=fareGame.missions.active&&fareGame.vehicles.list.find(car=>car.defIdx===2&&car.driver!=='cop'&&car.active&&car.pos.distanceToSquared(fareGame.player.pos)<900);
+assert.ok(taxi,'taxi fare provides a local taxi');assert.equal(fareGame.player.enterCar(taxi),true);
+fareGame.player.pos.set(fareGame.missions.stage().x,0,fareGame.missions.stage().z);fareGame.missions.update(.15);
+assert.equal(fareGame.missions.active,null,'taxi fare completes at the marked drop');assert.equal(fareGame.player.cash,fareStart+420);
 for(let n=0;n<4;n++){
   const shot=boot('?shot='+n);assert.equal(shot.SF.shots.active,true);shot.renderer.frame(1000);shot.renderer.frame(1016);
-  if(n===0)assert.equal(shot.SF.player.inCar,null);
-  if(n===1)assert.ok(shot.SF.player.inCar.speed>30);
-  if(n===2){assert.ok(shot.SF.police.wanted>=3);assert.equal(shot.SF.police.air.active,true);}
-  if(n===3){assert.ok(shot.SF.missions.active);assert.ok(shot.SF.weapons.cur>0);assert.equal(shot.elements.get('speaker-name').textContent,'Lena Voss');}
+  if(n===0){assert.ok(shot.SF.player.inCar,'chase capture has a player car');assert.ok(shot.SF.police.wanted>=4);assert.ok(shot.SF.police.units.filter(unit=>unit.active&&unit.car).length>=2);assert.ok(shot.SF.missions.active);}
+  if(n===1)assert.equal(shot.SF.player.inCar,null,'street capture is on foot');
+  if(n===2){assert.ok(shot.SF.player.inCar.speed>30);assert.equal(shot.SF.police.wanted,0,'coastal drive is a clean free-roam scene');}
+  if(n===3){assert.ok(shot.SF.missions.active);assert.ok(shot.SF.missions.objective);assert.equal(shot.SF.missions.active.id,'dues');}
 }
-console.log('Sunfall smoke passed: 18 scripts; namespaces, boot, input, saves, eight mission paths, guard reuse, timed failure, helicopter escape, and four screenshot states. Rendering/audio are not validated by VM stubs.');
+console.log('Sunfall v2 smoke passed: six districts, eight story missions, four repeatable activities, module boot, input, saves, campaign paths, patrol escape, and four staged capture states. Rendering/audio are verified separately in a browser.');

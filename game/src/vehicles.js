@@ -2,12 +2,12 @@
   'use strict';
   var scene = SF.render.scene, list = [];
   var defs = [
-    { name: 'Falco GT', colors: ['#ff583c','#ffa940','#c35eff'], topSpeed: 53, accel: 19, grip: 7, health: 100, cabin: 0.56, length: 4.4 },
-    { name: 'Palma Cruiser', colors: ['#2aa9dc','#f4e9d0','#ba4762'], topSpeed: 40, accel: 13, grip: 6, health: 100, cabin: 0.74, length: 4.6 },
-    { name: 'Brisa Compact', colors: ['#27d4a9','#ff73ad','#d3db53'], topSpeed: 36, accel: 14, grip: 8, health: 100, cabin: 0.78, length: 3.7 },
-    { name: 'Dockmaster', colors: ['#d98846','#508b80','#f0d18b'], topSpeed: 39, accel: 12, grip: 5, health: 100, cabin: 0.88, length: 5 },
-    { name: 'Solano Van', colors: ['#bb8de6','#e5dfd0','#ed8eba'], topSpeed: 34, accel: 11, grip: 5, health: 100, cabin: 1.18, length: 4.8 },
-    { name: 'Turismo S', colors: ['#ffcf34','#fe4d7e','#54efd6'], topSpeed: 63, accel: 24, grip: 9, health: 100, cabin: 0.48, length: 4.3 }
+    { name: 'Falco GT', kind: 'sports coupe', colors: ['#a94f43','#c17f50','#455d67'], topSpeed: 53, accel: 19, grip: 7, health: 100, cabin: 0.56, length: 4.4 },
+    { name: 'Palma Sedan', kind: 'sedan', colors: ['#397a80','#e7ddc8','#a45d54'], topSpeed: 40, accel: 13, grip: 6, health: 100, cabin: 0.74, length: 4.6 },
+    { name: 'Brisa Taxi', kind: 'taxi', colors: ['#d7aa58','#eee4cd','#bb744c'], topSpeed: 36, accel: 14, grip: 8, health: 100, cabin: 0.78, length: 3.7 },
+    { name: 'Ironworks Hauler', kind: 'truck', colors: ['#b9734f','#667e75','#d0b16f'], topSpeed: 39, accel: 12, grip: 5, health: 120, cabin: 0.88, length: 5.8 },
+    { name: 'Solano Van', kind: 'van', colors: ['#71847b','#e5dfd0','#b17862'], topSpeed: 34, accel: 11, grip: 5, health: 110, cabin: 1.18, length: 4.8 },
+    { name: 'Sundial RS', kind: 'sports car', colors: ['#d5ad55','#b85750','#438d88'], topSpeed: 63, accel: 24, grip: 9, health: 100, cabin: 0.48, length: 4.3 }
   ];
   var box = new THREE.BoxGeometry(1, 1, 1);
   var tireGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.29, 10);
@@ -15,7 +15,7 @@
   tireGeo.rotateZ(Math.PI / 2); hubGeo.rotateZ(Math.PI / 2);
   var rubber = new THREE.MeshStandardMaterial({color: 0x22212a, roughness: 0.91});
   var alloy = new THREE.MeshStandardMaterial({color: 0xb2aeb9, metalness: 0.65, roughness: 0.43});
-  var glass = new THREE.MeshStandardMaterial({color: 0x292b46, metalness: 0.46, roughness: 0.19});
+  var glass = new THREE.MeshStandardMaterial({color: 0x35484b, metalness: 0.38, roughness: 0.24});
   var head = new THREE.MeshStandardMaterial({color: 0xfff2c4, emissive: 0xffd99c, emissiveIntensity: 1.4});
   var tail = new THREE.MeshStandardMaterial({color: 0xf14458, emissive: 0xe42142, emissiveIntensity: 0.85});
   var paint = defs.map(function (d) {
@@ -139,7 +139,19 @@
     var cabL = defIdx === 4 ? 3.22 : defIdx === 3 ? 1.6 : l * 0.49;
     part(car, glass, 0, 0.98 + d.cabin / 2, cabZ, 1.57, d.cabin, cabL);
     part(car, color, 0, 1 + d.cabin, cabZ - 0.05, 1.54, 0.11, cabL - 0.24);
-    if (defIdx === 3) part(car, rubber, 0, 1.03, -1.29, 1.53, 0.08, 1.78);
+    if (defIdx === 3) {
+      part(car, rubber, 0, 0.95, -1.42, 1.6, 0.16, 2.15);
+      part(car, color, -0.79, 1.08, -1.42, 0.08, 0.54, 2.1);
+      part(car, color, 0.79, 1.08, -1.42, 0.08, 0.54, 2.1);
+    }
+    if (defIdx === 2) {
+      var roofSign = document.createElement('canvas'); roofSign.width = 128; roofSign.height = 48;
+      var signCtx = roofSign.getContext('2d'); signCtx.fillStyle = '#f1bd62'; signCtx.fillRect(0,0,128,48);
+      signCtx.fillStyle = '#34403c'; signCtx.font = 'bold 29px system-ui'; signCtx.textAlign = 'center'; signCtx.textBaseline = 'middle'; signCtx.fillText('TAXI',64,25);
+      var signTexture = new THREE.CanvasTexture(roofSign); signTexture.encoding = THREE.sRGBEncoding;
+      var sign = new THREE.Mesh(new THREE.BoxGeometry(0.76,0.31,0.38), new THREE.MeshStandardMaterial({map:signTexture,emissive:'#d99b44',emissiveIntensity:0.25}));
+      sign.position.set(0,1.34+d.cabin,0.05); car.add(sign);
+    }
     var wheels = [];
     for (var i = 0; i < 4; i++) {
       var side = i % 2 ? 1 : -1, pivot = new THREE.Group(), wheel = new THREE.Group();

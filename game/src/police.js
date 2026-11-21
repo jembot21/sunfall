@@ -5,6 +5,7 @@
   var box = new THREE.BoxGeometry(1, 1, 1);
   var navy = new THREE.MeshStandardMaterial({color: 0x242e4b, roughness: 0.58});
   var canopy = new THREE.MeshStandardMaterial({color: 0x63929f, roughness: 0.24, metalness: 0.46});
+  var patrolIvory = new THREE.MeshStandardMaterial({color: 0xe8ddc5, roughness: 0.64});
   var red = new THREE.MeshBasicMaterial({color: 0xff3552}), blue = new THREE.MeshBasicMaterial({color: 0x46a8ff});
   var drive = {throttle: 0, steer: 0, brake: false, handbrake: false};
   var frame = 0, siren = false, clock = 0, unseen = 0;
@@ -20,6 +21,8 @@
       fireT: 0, stuckT: 0, waypointT: 0, wx: 0, wz: 0, cooldown: 0, lightA: null, lightB: null};
     if (car) {
       car.driver = 'cop'; car.active = false;
+      block(mesh, patrolIvory, -0.94, 0.92, -0.03, 0.045, 0.42, 1.46);
+      block(mesh, patrolIvory, 0.94, 0.92, -0.03, 0.045, 0.42, 1.46);
       u.lightA = block(mesh, red, -0.36, 1.88, -0.26, 0.59, 0.13, 0.22);
       u.lightB = block(mesh, blue, 0.36, 1.88, -0.26, 0.59, 0.13, 0.22);
       block(mesh, navy, 0, 0.77, -0.1, 1.88, 0.29, 1.36);

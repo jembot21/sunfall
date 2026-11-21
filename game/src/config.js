@@ -1,29 +1,30 @@
 window.SF = window.SF || {};
 SF.CONFIG = {
+  version: 2,
+  city: { name: 'Solano Bay', sunset: '19:24', gridStep: 82, cityEdge: 287, coastX: -260 },
   grid: { block: 64, road: 18, blocks: 7, coastX: -260, halfCity: 287 },
   palette: {
-    sky: { top: '#2a1a5e', mid: '#b23a8c', horizon: '#ff8c42', fog: '#7a4a8c', sun: '#ffb36b' },
-    buildings: ['#e4572e','#f2a03d','#17bebb','#e56399','#7fb069','#5b8e7d','#e9c46a','#2a9d8f','#ef476f','#118ab2','#ffd166','#06d6a0','#c77dff','#ff7b54','#4cc9f0'],
-    cars: ['#ff5a5f','#ffbd35','#23c6b8','#a56eff','#39a0ed','#ff76bd','#89d84f','#f26a32','#f7f4df','#31d69b'],
-    sand: '#e8c07a', asphalt: '#33323e', marking: '#e6d8ad', sidewalk: '#b6a7a2', ocean: '#3b9eae', palm: '#319b67'
+    sky: { top: '#44365e', mid: '#bd6965', horizon: '#e99c55', fog: '#d38b70', sun: '#ffd08a' },
+    buildings: ['#c48a69','#e0b080','#d78d72','#94aaa2','#a9afa4','#cf9e77','#828c91','#d3a276','#8d817d','#a9c0b8','#dfc08c'],
+    cars: ['#bd5145','#e5a84f','#2a9d9a','#5d7188','#637d69','#e7ddc8','#b87b58','#f1c45e'],
+    sand: '#e5c48d', asphalt: '#5a5149', marking: '#f0dfbd', sidewalk: '#c7b39a', ocean: '#247f87', palm: '#48775a',
+    teal: '#42d8cc', coral: '#f26357', amber: '#f4b75e'
   },
   districts: [
-    { name: 'Palma Strand', x1: -360, x2: -220, z1: -250, z2: 250 },
-    { name: 'Old Port', x1: -220, x2: -30, z1: 65, z2: 290 },
-    { name: 'Downtown', x1: -30, x2: 105, z1: -100, z2: 100 },
-    { name: 'Marina', x1: -220, x2: -30, z1: -290, z2: 65 },
-    { name: 'Market Row', x1: 105, x2: 290, z1: -95, z2: 95 },
-    { name: 'The Hills', x1: 105, x2: 290, z1: -290, z2: -95 },
-    { name: 'Airport Flats', x1: 105, x2: 290, z1: 95, z2: 290 },
-    { name: 'North Beach', x1: -420, x2: -220, z1: -320, z2: -250 }
+    { name: 'Palma Strand', x1: -420, x2: -220, z1: -320, z2: 320 },
+    { name: 'Marina', x1: -220, x2: -30, z1: -320, z2: 65 },
+    { name: 'Old Town', x1: -220, x2: -30, z1: 65, z2: 320 },
+    { name: 'Downtown', x1: -30, x2: 105, z1: -320, z2: 320 },
+    { name: 'Hillcrest', x1: 105, x2: 290, z1: -320, z2: 95 },
+    { name: 'Ironworks Port', x1: 105, x2: 290, z1: 95, z2: 320 }
   ],
   wantedThresholds: [0, 18, 44, 82, 132, 205],
-  bustedFee: 450,
-  wastedFee: 280,
+  bustedFee: 450, wastedFee: 280,
   prices: { pistol: 450, smg: 1250, shotgun: 1800, rifle: 3200, ammo: 75, armour: 250, repair: 180 },
   repLevels: [
-    { name: 'Nobody', threshold: 0 }, { name: 'Runner', threshold: 100 },
+    { name: 'New Face', threshold: 0 }, { name: 'Runner', threshold: 100 },
     { name: 'Hustler', threshold: 300 }, { name: 'Operator', threshold: 700 },
     { name: 'Shot Caller', threshold: 1400 }, { name: 'Bay Legend', threshold: 2600 }
-  ]
+  ],
+  safehouses: [{ name: 'Palma Strand Flat', x: -272, z: 42 }, { name: 'Old Town Warehouse', x: -117, z: 123 }]
 };

@@ -3,9 +3,9 @@
   var context=null,master=null,noise=null,engineOsc=null,engineGain=null,sirenOsc=null,sirenGain=null,radioGain=null;
   var engineOn=false,sirenOn=false,radioOn=false,station=0,nextNote=0,step=0,scheduler=0;
   var stations=[
-    {name:'BAY FM 99.1',track:'Peach Skyline — The Boardwalks',beat:0.17,wave:'square',notes:[72,76,79,76,74,77,81,77,72,76,79,83,81,79,76,74],bass:[48,48,53,55]},
-    {name:'PALMA GOLD',track:'Sunday Convertible — Vera Sol',beat:0.22,wave:'triangle',notes:[67,0,69,72,71,69,67,64,65,0,67,69,67,65,64,62],bass:[48,57,53,55]},
-    {name:'NIGHT DRIVE FM',track:'Neon Estuary — Violet Circuit',beat:0.15,wave:'triangle',notes:[64,71,76,79,64,71,76,83,60,67,72,79,62,69,74,81],bass:[40,40,36,38]}
+    {name:'SOLANO FM 99.1',track:'Peach Skyline · The Boardwalks',beat:0.17,wave:'triangle',notes:[72,76,79,76,74,77,81,77,72,76,79,83,81,79,76,74],bass:[48,48,53,55]},
+    {name:'PALMA GOLD',track:'Sunday Convertible · Vera Sol',beat:0.22,wave:'sine',notes:[67,0,69,72,71,69,67,64,65,0,67,69,67,65,64,62],bass:[48,57,53,55]},
+    {name:'HARBOR AFTER DARK',track:'Neon Estuary · Violet Circuit',beat:0.15,wave:'triangle',notes:[64,71,76,79,64,71,76,83,60,67,72,79,62,69,74,81],bass:[40,40,36,38]}
   ];
   function frequency(note){return 440*Math.pow(2,(note-69)/12);}
   function tone(freq,duration,type,volume,when,bus,end){

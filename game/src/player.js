@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   var scene = SF.render.scene, camera = SF.render.camera, input = SF.input;
-  var figure = SF.peds.buildFigure({skin: 0xc98d66, shirt: 0x25b8b0, pants: 0x35577c});
+  var figure = SF.peds.buildFigure({skin: 0xc98d66, shirt: 0x287f7e, pants: 0x293b4a, hat: false});
   scene.add(figure);
   var arm = figure.userData.arms[1];
   var prop = new THREE.Mesh(new THREE.BoxGeometry(0.105, 0.12, 0.35),
@@ -21,7 +21,7 @@
     sparks.push({mesh: mesh, time: 0, vx: 0, vy: 0, vz: 0});
   }
   var safehouses = SF.CONFIG.safehouses || [
-    {name: 'Palma Strand flat', x: -272, z: 42}, {name: 'Old Port warehouse', x: -117, z: 124}
+    {name: 'Palma Strand flat', x: -272, z: 42}, {name: 'Old Town warehouse', x: -117, z: 124}
   ];
   var aim = new THREE.Vector3(), ray = new THREE.Vector3(), origin = new THREE.Vector3();
   var cameraGoal = new THREE.Vector3(), focus = new THREE.Vector3();
@@ -263,7 +263,7 @@
       for (var i = 0; i < 5; i++) if (pressed(weaponKeys[i])) w.equip(i);
       if (pressed('KeyR')) w.reload();
       var len = Math.hypot(forward, side);
-      var speed = down('ShiftLeft') || down('ShiftRight') ? 8.4 : 4.9;
+      var speed = down('ShiftLeft') || down('ShiftRight') ? 8.8 : 5.15;
       if (len > 0) {
         var sine = Math.sin(player.yaw), cosine = Math.cos(player.yaw);
         var dx = (forward * sine - side * cosine) / len, dz = (forward * cosine + side * sine) / len;

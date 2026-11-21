@@ -9,15 +9,25 @@ const args = process.argv.slice(2);
 const portAt = args.indexOf('--port');
 const port = Number(portAt < 0 ? 8080 : args[portAt + 1]);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid port');
-const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.json': 'application/json' };
+const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.json': 'application/json; charset=utf-8' };
 createServer(async (req, res) => {
   try {
+    if (!['GET', 'HEAD'].includes(req.method ?? 'GET')) {
+      res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8', 'Allow': 'GET, HEAD' });
+      res.end('Method not allowed');
+      return;
+    }
     const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
     const file = await realpath(resolve(root, '.' + (pathname === '/' ? '/index.html' : pathname)));
     if (!file.startsWith(root + sep) || !(await stat(file)).isFile()) throw new Error('Outside game');
     const body = await readFile(file);
-    res.writeHead(200, { 'Content-Type': mime[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-    res.end(body);
+    res.writeHead(200, {
+      'Content-Type': mime[extname(file)] || 'application/octet-stream',
+      'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy': "default-src 'self'; script-src 'self'; connect-src 'none'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
+    });
+    if (req.method === 'HEAD') res.end(); else res.end(body);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not found');

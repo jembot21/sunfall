@@ -8,26 +8,26 @@
   var scale = canvas.width / size;
   function px(x) { return (x + half) * scale; }
   function pz(z) { return (z + half) * scale; }
-  ctx.fillStyle = '#b6a7a2'; ctx.fillRect(0, 0, 2048, 2048);
-  ctx.fillStyle = '#33323e';
+  ctx.fillStyle = '#b6a28f'; ctx.fillRect(0, 0, 2048, 2048);
+  ctx.fillStyle = '#423c3b';
   for (var k = -7; k <= 7; k++) {
     var roadCenter = k * 82 + 41;
     ctx.fillRect(px(roadCenter - 9), 0, 18 * scale, 2048);
     ctx.fillRect(0, pz(roadCenter - 9), 2048, 18 * scale);
   }
-  var lotColors = ['#837987','#8c7773','#766f81','#9a8071','#747a80','#8a7c8b','#9b827b'];
+  var lotColors = ['#81776f','#92796a','#786f6d','#9b8070','#777a76','#897a73','#9b8275'];
   for (var gx = -3; gx <= 3; gx++) for (var gz = -3; gz <= 3; gz++) {
     var cx = gx * 82, cz = gz * 82;
     ctx.fillStyle = lotColors[(gx * 3 + gz * 5 + 30) % lotColors.length];
     ctx.fillRect(px(cx - 31), pz(cz - 31), 62 * scale, 62 * scale);
-    ctx.fillStyle = '#c6aaa0';
+    ctx.fillStyle = '#c2a98f';
     ctx.fillRect(px(cx - 33), pz(cz - 33), 66 * scale, 2 * scale);
     ctx.fillRect(px(cx - 33), pz(cz + 31), 66 * scale, 2 * scale);
   }
-  ctx.fillStyle = '#e8c07a'; ctx.fillRect(0, 0, px(-260), 2048);
-  ctx.fillStyle = '#b9977e'; ctx.fillRect(px(-276), 0, 16 * scale, 2048);
-  ctx.fillStyle = '#33323e'; ctx.fillRect(px(-245), 0, 18 * scale, 2048);
-  ctx.strokeStyle = '#e6d8ad'; ctx.lineWidth = 2;
+  ctx.fillStyle = '#d6b27d'; ctx.fillRect(0, 0, px(-260), 2048);
+  ctx.fillStyle = '#ac896d'; ctx.fillRect(px(-276), 0, 16 * scale, 2048);
+  ctx.fillStyle = '#423c3b'; ctx.fillRect(px(-254), 0, 18 * scale, 2048);
+  ctx.strokeStyle = '#e3c891'; ctx.lineWidth = 2;
   for (var r = -7; r <= 7; r++) {
     var center = r * 82;
     ctx.setLineDash([12, 14]);
@@ -42,8 +42,8 @@
   ground.rotation.x = -Math.PI / 2; ground.position.y = -0.08; ground.receiveShadow = true;
   group.add(ground);
 
-  var oceanMat1 = new THREE.MeshLambertMaterial({ color: '#318d9e', transparent: true, opacity: 0.8, depthWrite: false });
-  var oceanMat2 = new THREE.MeshLambertMaterial({ color: '#57bac0', transparent: true, opacity: 0.26, depthWrite: false });
+  var oceanMat1 = new THREE.MeshLambertMaterial({ color: SF.CONFIG.palette.ocean, transparent: true, opacity: 0.9, depthWrite: false });
+  var oceanMat2 = new THREE.MeshLambertMaterial({ color: '#62b7aa', transparent: true, opacity: 0.18, depthWrite: false });
   var ocean1 = new THREE.Mesh(new THREE.PlaneGeometry(700, 1200), oceanMat1);
   var ocean2 = new THREE.Mesh(new THREE.PlaneGeometry(700, 1200), oceanMat2);
   ocean1.rotation.x = ocean2.rotation.x = -Math.PI / 2;
@@ -77,7 +77,10 @@
   function districtAt(x, z) {
     var areas = SF.CONFIG.districts;
     for (var i = 0; i < areas.length; i++) { var d = areas[i]; if (x >= d.x1 && x < d.x2 && z >= d.z1 && z < d.z2) return d.name; }
-    return x < -260 ? 'Palma Strand' : 'Downtown';
+    if (x < -220) return 'Palma Strand';
+    if (x < -30) return z < 65 ? 'Marina' : 'Old Town';
+    if (x < 105) return 'Downtown';
+    return z < 95 ? 'Hillcrest' : 'Ironworks Port';
   }
   SF.world = {
     group: group,

@@ -2,10 +2,10 @@
   'use strict';
   var defs = [
     {name: 'Fists', dmg: 34, rate: 0.55, mag: Infinity, range: 3.2, auto: false},
-    {name: 'P9 Sidearm', dmg: 26, rate: 0.30, mag: 12, reserve: 120, range: 120, price: 0},
-    {name: 'Hornet SMG', dmg: 15, rate: 0.09, mag: 32, reserve: 256, range: 110, auto: true, price: 600},
-    {name: 'Bulldog Scatter', dmg: 11, pellets: 6, rate: 0.9, mag: 6, reserve: 48, range: 45, price: 1400},
-    {name: 'Longshot Rifle', dmg: 92, rate: 1.1, mag: 5, reserve: 40, range: 240, price: 2600}
+    {name: 'P9 Sidearm', dmg: 28, rate: 0.30, mag: 12, reserve: 120, range: 120, price: SF.CONFIG.prices.pistol},
+    {name: 'Hornet SMG', dmg: 16, rate: 0.095, mag: 32, reserve: 256, range: 110, auto: true, price: SF.CONFIG.prices.smg},
+    {name: 'Bulldog Scatter', dmg: 11, pellets: 6, rate: 0.9, mag: 6, reserve: 48, range: 45, price: SF.CONFIG.prices.shotgun},
+    {name: 'Longshot Rifle', dmg: 92, rate: 1.1, mag: 5, reserve: 40, range: 240, price: SF.CONFIG.prices.rifle}
   ];
   var state = {
     defs: defs,

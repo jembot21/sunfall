@@ -1,8 +1,8 @@
 (function () {
   'use strict';
   var list = [], scene = SF.render.scene, frame = 0;
-  var box = new THREE.BoxGeometry(1, 1, 1), ball = new THREE.SphereGeometry(1, 10, 7);
-  var materials = new Map(), shirts = [0xe84182,0xffb642,0x42caca,0x915fed,0xef6144,0x84cf49,0xf3d6b1];
+  var box = new THREE.BoxGeometry(1, 1, 1), ball = new THREE.SphereGeometry(1, 12, 9);
+  var materials = new Map(), shirts = [0xc96c58,0xe2ad62,0x398d8b,0x637a86,0x7e8668,0xd3b38b,0xe6d2b5];
   var skins = [0xedb28a,0xb27351,0x7c4a39,0xd89665,0xf0c4a2];
   var trousers = [0x382a47,0x244d76,0x594854,0xe1b587];
   function material(color) {
@@ -24,19 +24,27 @@
     return m;
   }
   function buildFigure(options) {
-    var root = new THREE.Group(), parts = [], a = [], l = [];
+    // Rounded torso, separate forearms/hands and articulated thighs/shins read clearly
+    // at the shoulder-camera distance without a rig or remote asset dependency.
+    var root = new THREE.Group(), parts = [], a = [], l = [], elbows = [], knees = [];
     var skin = options.skin ?? 0xc98d66, shirt = options.shirt ?? 0x37c7ba, pants = options.pants ?? 0x294369;
-    limb(root, ball, skin, 0, 1.62, 0.014, 0.165, 0.196, 0.161, parts);
-    limb(root, box, shirt, 0, 1.12, 0, 0.43, 0.53, 0.25, parts).castShadow = true;
+    limb(root, ball, skin, 0, 1.62, 0.014, 0.145, 0.19, 0.145, parts);
+    limb(root, ball, skin, 0, 1.42, 0.006, 0.075, 0.09, 0.08, parts);
+    limb(root, ball, shirt, 0, 1.13, 0, 0.255, 0.34, 0.17, parts).castShadow = true;
+    limb(root, box, shirt, 0, 0.99, 0, 0.35, 0.23, 0.2, parts);
     for (var i = 0; i < 2; i++) {
       var side = i ? 1 : -1;
       var arm = new THREE.Group(); arm.position.set(side * 0.276, 1.34, 0);
-      limb(arm, box, shirt, 0, -0.12, 0, 0.142, 0.27, 0.15, parts);
-      limb(arm, box, skin, 0, -0.33, 0, 0.114, 0.19, 0.12, parts);
+      limb(arm, ball, shirt, 0, -0.105, 0, 0.079, 0.17, 0.083, parts);
+      var elbow = new THREE.Group(); elbow.position.set(0, -0.245, 0); arm.add(elbow); elbows.push(elbow);
+      limb(elbow, ball, skin, 0, -0.105, 0, 0.061, 0.145, 0.062, parts);
+      limb(elbow, ball, skin, 0, -0.246, 0.012, 0.062, 0.065, 0.075, parts);
       root.add(arm); a.push(arm);
       var leg = new THREE.Group(); leg.position.set(side * 0.112, 0.89, 0);
-      limb(leg, box, pants, 0, -0.41, 0, 0.185, 0.77, 0.203, parts);
-      limb(leg, box, 0x302839, 0, -0.838, 0.057, 0.19, 0.105, 0.295, parts);
+      limb(leg, ball, pants, 0, -0.205, 0, 0.098, 0.29, 0.105, parts);
+      var knee = new THREE.Group(); knee.position.set(0, -0.405, 0); leg.add(knee); knees.push(knee);
+      limb(knee, ball, pants, 0, -0.205, 0, 0.075, 0.29, 0.08, parts);
+      limb(knee, ball, 0x342f35, 0, -0.393, 0.065, 0.085, 0.065, 0.15, parts);
       root.add(leg); l.push(leg);
     }
     if (options.hat) {
@@ -44,16 +52,20 @@
       limb(root, ball, cap, 0, 1.751, 0, 0.181, 0.108, 0.173, parts);
       limb(root, box, cap, 0, 1.727, 0.14, 0.26, 0.045, 0.19, parts);
     }
-    root.userData.arms = a; root.userData.legs = l; root.userData.parts = parts;
+    root.userData.arms = a; root.userData.legs = l; root.userData.elbows = elbows; root.userData.knees = knees; root.userData.parts = parts;
     return root;
   }
   function animate(figure, phase, stride, flee) {
     var u = figure.userData, swing = Math.sin(phase) * stride;
-    u.arms[0].rotation.x = flee ? -2.48 + swing * 0.25 : -swing * 0.82;
-    u.arms[1].rotation.x = flee ? -2.48 - swing * 0.25 : swing * 0.82;
+    u.arms[0].rotation.x = flee ? -2.48 + swing * 0.25 : -swing * 1.05;
+    u.arms[1].rotation.x = flee ? -2.48 - swing * 0.25 : swing * 1.05;
     u.arms[0].rotation.z = flee ? -0.39 : -0.07;
     u.arms[1].rotation.z = flee ? 0.39 : 0.07;
     u.legs[0].rotation.x = swing; u.legs[1].rotation.x = -swing;
+    u.elbows[0].rotation.x = flee ? -0.38 : Math.max(0, swing) * 0.24;
+    u.elbows[1].rotation.x = flee ? -0.38 : Math.max(0, -swing) * 0.24;
+    u.knees[0].rotation.x = Math.max(0, -swing) * 0.32;
+    u.knees[1].rotation.x = Math.max(0, swing) * 0.32;
   }
   function shade(p, level) {
     if (p.fade === level) return;

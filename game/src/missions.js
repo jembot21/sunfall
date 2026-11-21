@@ -3,22 +3,22 @@
   function line(who, role, text) { return {who: who, role: role, text: text}; }
   var marco = 'Marco Reyes', tia = 'Tia Navarro', lena = 'Lena Voss';
   var list = [
-    {id:'wheels',chapter:'CH 1',title:'First Wheels',giver:marco,x:-272,z:42,intro:[line(marco,'Fixer','Welcome home, Dario. Borrow the blue Palma Cruiser. My buyer is waiting at Old Port.')],stages:[{type:'drive',x:-117,z:123,car:1,text:'Steal the marked Palma Cruiser. Deliver it to Old Port.'}],payout:650,repReward:100,unlock:1},
+    {id:'wheels',chapter:'CH 1',title:'First Wheels',giver:marco,x:-272,z:42,intro:[line(marco,'Fixer','Welcome home, Dario. Take a Palma Sedan. My buyer is waiting in Old Town.')],stages:[{type:'drive',x:-117,z:123,car:1,text:'Take the marked Palma Sedan to Old Town.'}],payout:650,repReward:100,unlock:1},
     {id:'dues',chapter:'CH 2',title:'Harbour Dues',giver:tia,x:-205,z:123,intro:[line(tia,'Harbour contact','Three dockside drops. One buyer. Keep moving before the harbour watch comes around.')],stages:[{type:'deliver',x:-205,z:164,toX:-123,toZ:205,limit:85,text:'Collect the first dock package, then reach the buyer.'},{type:'deliver',x:-205,z:205,toX:-123,toZ:205,limit:65,text:'Collect the second dock package.'},{type:'deliver',x:-205,z:246,toX:-123,toZ:205,limit:65,text:'Collect the last package and bring it back.'}],payout:950,repReward:140},
-    {id:'wheelwoman',chapter:'CH 3',title:'Wheelwoman',giver:lena,x:-205,z:-123,intro:[line(lena,'Wheelwoman','That yellow Turismo carries our stolen ledger. Stay fifteen to forty-five metres back. When I call it, close in.')],stages:[{type:'tail',x:-205,z:-93,duration:18,text:'Tail the Turismo: stay 15–45 m behind for 18 seconds.'},{type:'chase',x:-205,z:-41,text:'Stop the Turismo: damage it or stay within 11 m.'}],payout:1400,repReward:200},
+    {id:'wheelwoman',chapter:'CH 3',title:'Wheelwoman',giver:lena,x:-205,z:-123,intro:[line(lena,'Wheelwoman','That yellow Sundial RS carries our stolen ledger. Stay fifteen to forty-five metres back. When I call it, close in.')],stages:[{type:'tail',x:-205,z:-93,duration:18,text:'Tail the Sundial RS: stay 15–45 m behind for 18 seconds.'},{type:'chase',x:-205,z:-41,text:'Stop the Sundial RS: damage it or stay within 11 m.'}],payout:1400,repReward:200},
     {id:'market',chapter:'CH 4',title:'Market Heat',giver:marco,x:123,z:41,intro:[line(marco,'Fixer','Our Market Row crew is pinned down. Clear the ambush, then shake the patrols.')],stages:[{type:'shootout',x:123,z:0,count:4,stars:1,text:'Clear four armed lookouts at Market Row.'},{type:'escape',stars:3,text:'Lose your three-star wanted level. Break line of sight.'}],payout:1900,repReward:260,unlock:2},
     {id:'tide',chapter:'CH 5',title:'High Tide',giver:tia,x:-237,z:123,intro:[line(tia,'Harbour contact','No boats tonight. Run the coast road before the tide cuts off our pickup window.')],stages:[{type:'race',x:-237,z:41,points:[[-237,41],[-237,-123],[-237,-205],[-123,-205],[-41,-205]],limit:85,text:'Drive the coast checkpoints before par: 85 seconds.'}],payout:2300,repReward:300},
-    {id:'static',chapter:'CH 6',title:'Static',giver:lena,x:-123,z:-123,intro:[line(lena,'Wheelwoman','Take the relay van. Roadblocks are up and the helicopter is hunting. Deliver it, then disappear.')],stages:[{type:'drive',x:205,z:123,car:4,stars:4,text:'Take the marked relay van to Airport Flats.'},{type:'escape',stars:4,text:'Escape the helicopter and roadblocks.'}],payout:3000,repReward:380},
+    {id:'static',chapter:'CH 6',title:'Static',giver:lena,x:-123,z:-123,intro:[line(lena,'Wheelwoman','Take the relay van. Roadblocks are up and the helicopter is hunting. Deliver it, then disappear.')],stages:[{type:'drive',x:205,z:123,car:4,stars:4,text:'Take the marked relay van to Ironworks Port.'},{type:'escape',stars:4,text:'Escape the helicopter and roadblocks.'}],payout:3000,repReward:380},
     {id:'longshot',chapter:'CH 7',title:'The Longshot',giver:marco,x:123,z:123,intro:[line(marco,'Fixer','The rooftop lift is ready. Take the Longshot and cover the street. Then get out clean.')],stages:[{type:'goto',x:123,z:82,text:'Reach the service lift on the roof access marker.'},{type:'shootout',x:123,z:41,count:3,roof:true,unlock:4,text:'From the rooftop, use the Longshot to clear three armed lookouts.'},{type:'escape',stars:3,text:'Leave the roof and lose the patrols.'}],payout:3800,repReward:440},
-    {id:'legend',chapter:'CH 8',title:'Bay Legend',giver:'The crew',x:-205,z:41,intro:[line(marco,'Fixer','One last ledger. One last convoy.'),line(tia,'Harbour contact','The harbour is ours if you bring this home.'),line(lena,'Wheelwoman','Dario, make the whole bay remember your name.')],stages:[{type:'chase',x:-205,z:0,stars:3,text:'Intercept the convoy leader.'},{type:'shootout',x:-123,z:123,count:6,stars:4,text:'Clear the six convoy guards at Old Port.'},{type:'escape',stars:5,text:'Survive five stars and disappear. Become a Bay Legend.'}],payout:15000,repReward:1000}
+    {id:'legend',chapter:'CH 8',title:'Bay Legend',giver:'The crew',x:-205,z:41,intro:[line(marco,'Fixer','One last ledger. One last convoy.'),line(tia,'Harbour contact','The harbour is ours if you bring this home.'),line(lena,'Wheelwoman','Dario, make the whole bay remember your name.')],stages:[{type:'chase',x:-205,z:0,stars:3,text:'Intercept the convoy leader.'},{type:'shootout',x:-123,z:123,count:6,stars:4,text:'Clear the six convoy guards in Old Town.'},{type:'escape',stars:5,text:'Survive five stars and disappear. Become a Bay Legend.'}],payout:15000,repReward:1000}
   ];
   var sides = [
     {id:'courier',chapter:'SIDE JOB',title:'Sunset Courier',giver:tia,x:-270,z:-41,intro:[line(tia,'Dispatch','A sealed parcel. A fast drop. No questions.')],stages:[{type:'deliver',x:-270,z:-41,toX:41,toZ:-123,limit:100,text:'Collect the parcel and deliver it to Downtown.'}],payout:450,repReward:35},
     {id:'streetrace',chapter:'SIDE JOB',title:'Coastal Sprint',giver:lena,x:-237,z:-205,intro:[line(lena,'Street racing','One rival, four checkpoints. Show me a clean line.')],stages:[{type:'race',x:-237,z:-123,points:[[-237,-123],[-237,41],[-123,41],[-123,205]],limit:75,rival:true,text:'Beat the rival through four checkpoints.'}],payout:650,repReward:55},
     {id:'stash',chapter:'SIDE JOB',title:'Hidden Stash',giver:marco,x:205,z:41,intro:[line(marco,'Fixer','Someone is guarding our stash. Take it back.')],stages:[{type:'shootout',x:205,z:123,count:2,text:'Clear the two stash guards.'},{type:'goto',x:205,z:123,text:'Pick up the recovered stash.'}],payout:550,repReward:45},
-    {id:'fare',chapter:'SIDE JOB',title:'Last Fare',giver:'Nico',x:-123,z:-205,intro:[line('Nico','Passenger','My shift starts soon. Get a car and take me to Market Row.')],stages:[{type:'drive',x:205,z:-41,text:'Take your passenger to Market Row in any car.'}],payout:350,repReward:30}
+    {id:'fare',chapter:'SIDE JOB',title:'Bay Taxi Fare',giver:'Nico',x:-123,z:-205,intro:[line('Nico','Passenger','A Brisa Taxi is all yours. Get me to the Market Row curb before the dinner rush.')],stages:[{type:'fare',x:205,z:-41,text:'Pick up Nico in a Brisa Taxi and drop him at Market Row.'}],payout:420,repReward:35}
   ];
-  var api = {list:list,sideJobs:sides,storyDone:0,sideDone:0,safehouseUnlocks:[0],active:null,stageIndex:0,objective:'',progress:0,timer:0,blip:null,nearest:null,rooftop:false};
+  var api = {list:list,sideJobs:sides,storyCount:list.length,activityCount:sides.length,storyDone:0,sideDone:0,safehouseUnlocks:[0],active:null,stageIndex:0,objective:'',progress:0,timer:0,blip:null,nearest:null,rooftop:false};
   var tick = 0, elapsed = 0, held = 0, lost = 0, picked = false, enemies = [], target = null, routeIndex = 0;
   var route = [[-205,-123],[-205,123],[123,123],[123,-123]], guardPool=[];
   var gunGeometry=new THREE.BoxGeometry(0.1,0.12,0.45),gunMaterial=new THREE.MeshStandardMaterial({color:0x302b3d});
@@ -27,11 +27,11 @@
     var guard=SF.peds.spawn(123,41),gun=new THREE.Mesh(gunGeometry,gunMaterial);
     SF.peds.list.pop();gun.position.set(0,-0.35,0.2);guard.mesh.userData.arms[1].add(gun);guard.mesh.visible=false;guardPool.push(guard);
   }
-  var objective = new THREE.Mesh(new THREE.CylinderGeometry(2,2,9,12,1,true),new THREE.MeshBasicMaterial({color:0xffc55c,transparent:true,opacity:0.35,depthWrite:false,side:THREE.DoubleSide}));
+  var objective = new THREE.Mesh(new THREE.CylinderGeometry(2,2,9,12,1,true),new THREE.MeshBasicMaterial({color:0x42d8cc,transparent:true,opacity:0.38,depthWrite:false,side:THREE.DoubleSide}));
   objective.visible = false; SF.render.scene.add(objective);
   var markers = [], all = list.concat(sides);
   for (var i=0;i<all.length;i++) {
-    var mesh = new THREE.Mesh(new THREE.CylinderGeometry(2.5,2.5,6,12,1,true),new THREE.MeshBasicMaterial({color:i<8?0xffa14a:0x58e6d0,transparent:true,opacity:0.30,depthWrite:false,side:THREE.DoubleSide}));
+    var mesh = new THREE.Mesh(new THREE.CylinderGeometry(2.5,2.5,6,12,1,true),new THREE.MeshBasicMaterial({color:i<8?0x42d8cc:0x70dbc6,transparent:true,opacity:0.32,depthWrite:false,side:THREE.DoubleSide}));
     mesh.position.set(all[i].x,3,all[i].z); SF.render.scene.add(mesh); markers.push(mesh);
   }
   var roof = new THREE.Mesh(new THREE.BoxGeometry(9,0.4,9),new THREE.MeshStandardMaterial({color:0x49869c,roughness:0.8}));
@@ -52,10 +52,11 @@
     clearStage(keepTarget); var s=stage(); elapsed=held=lost=0;picked=false;routeIndex=0;
     api.progress=0;api.timer=s.limit||0;api.objective=s.text;pin(s.x||SF.player.pos.x,s.z||SF.player.pos.z); heat(s.stars);
     if(s.unlock){SF.weapons.unlock(s.unlock);SF.weapons.equip(s.unlock);}
-    if(s.type==='drive'&&s.car!==undefined) {
+    if((s.type==='drive'&&s.car!==undefined)||s.type==='fare') {
       var cars=SF.vehicles.list;
-      for(var c=0;c<cars.length;c++)if(cars[c].active&&cars[c].defIdx===s.car&&cars[c].driver!=='cop'&&cars[c].pos.distanceToSquared(SF.player.pos)<900){target=cars[c];break;}
-      if(!target)target=SF.vehicles.create(SF.player.pos.x+3,SF.player.pos.z,0,s.car);
+      var needed=s.type==='fare'?2:s.car;
+      for(var c=0;c<cars.length;c++)if(cars[c].active&&cars[c].defIdx===needed&&cars[c].driver!=='cop'&&cars[c].pos.distanceToSquared(SF.player.pos)<900){target=cars[c];break;}
+      if(!target)target=SF.vehicles.create(SF.player.pos.x+3,SF.player.pos.z,0,needed);
     }
     if(s.type==='tail'||s.type==='chase') {
       if(!target)target=SF.vehicles.create(s.x,s.z,0,5);
@@ -77,6 +78,7 @@
     api.active=job;api.stageIndex=0;
     var first=job.stages[0];
     if((first.type==='tail'||first.type==='race'||first.type==='drive'&&first.car===undefined)&&!SF.vehicles.nearestEnterable(SF.player.pos.x,SF.player.pos.z,12))SF.vehicles.create(SF.player.pos.x+3,SF.player.pos.z,0,1);
+    if(first.type==='fare'&&!SF.vehicles.list.some(function(car){return car.active&&car.defIdx===2&&car.driver!=='cop'&&car.pos.distanceToSquared(SF.player.pos)<144;}))SF.vehicles.create(SF.player.pos.x+3,SF.player.pos.z,0,2);
     for(var i=0;i<job.intro.length;i++){var l=job.intro[i];say(l.who,l.role,l.text);}
     beginStage(false);return true;
   }
@@ -101,10 +103,13 @@
       return;
     }
     var s=stage();elapsed+=dt;api.timer=s.limit?Math.max(0,s.limit-elapsed):0;
-    if(s.type==='goto'||s.type==='drive') {
+    if(s.type==='goto'||s.type==='drive'||s.type==='fare') {
       var car=SF.player.inCar;
-      if(s.type==='drive'&&s.car!==undefined&&(!car||car.defIdx!==s.car)){api.blip=target.pos;objective.position.set(target.pos.x,4.5,target.pos.z);}
-      else {api.blip=objective.position;objective.position.set(s.x,4.5,s.z);if(dist(s.x,s.z)<6&&(s.type==='goto'||car)){finishStage();return;}}
+      var required=s.type==='fare'?2:s.car;
+      if((s.type==='drive'&&s.car!==undefined||s.type==='fare')&&(!car||car.defIdx!==required)){
+        if(s.type==='fare')api.objective='Take a Brisa Taxi to the passenger drop-off.';
+        api.blip=target.pos;objective.position.set(target.pos.x,4.5,target.pos.z);
+      } else {api.blip=objective.position;objective.position.set(s.x,4.5,s.z);if(dist(s.x,s.z)<6&&(s.type==='goto'||car)){finishStage();return;}}
     }
     if(!run)return;var h=tick;tick=0;
     for(var m=0;m<markers.length;m++)markers[m].visible=false;

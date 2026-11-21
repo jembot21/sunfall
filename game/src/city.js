@@ -1,5 +1,6 @@
 (function () {
   var group = new THREE.Group();
+  // Solano Bay repeats a small family of salt-worn stucco colors across a dense grid.
   var palette = SF.CONFIG.palette.buildings;
   var buildingGeo = new THREE.BoxGeometry(1, 1, 1);
   var roofGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -7,25 +8,27 @@
   var windowCanvas = document.createElement('canvas');
   windowCanvas.width = 128; windowCanvas.height = 256;
   var wx = windowCanvas.getContext('2d');
-  wx.fillStyle = '#e9c5b4'; wx.fillRect(0, 0, 128, 256);
+  wx.fillStyle = '#765e55'; wx.fillRect(0, 0, 128, 256);
   for (var wy = 9; wy < 250; wy += 23) for (var xx = 8; xx < 124; xx += 18) {
-    wx.fillStyle = '#493d58'; wx.fillRect(xx - 2, wy - 2, 13, 17);
-    wx.fillStyle = ((xx * 3 + wy * 7) % 5 === 0) ? '#ffd49a' : '#7bd9db';
-    wx.globalAlpha = ((xx + wy) % 4 === 0) ? 0.46 : 0.93; wx.fillRect(xx, wy, 9, 13); wx.globalAlpha = 1;
+    wx.fillStyle = '#473e3a'; wx.fillRect(xx - 2, wy - 2, 13, 17);
+    wx.fillStyle = ((xx * 3 + wy * 7) % 5 === 0) ? '#ffe0a0' : '#86c8be';
+    wx.globalAlpha = ((xx + wy) % 4 === 0) ? 0.4 : 0.88; wx.fillRect(xx, wy, 9, 13); wx.globalAlpha = 1;
   }
   var emissionCanvas = document.createElement('canvas');
   emissionCanvas.width = 128; emissionCanvas.height = 256;
   var ex = emissionCanvas.getContext('2d');
   ex.fillStyle = '#000'; ex.fillRect(0, 0, 128, 256);
   for (var ey = 9; ey < 250; ey += 23) for (var exx = 8; exx < 124; exx += 18) if ((exx * 3 + ey * 7) % 5 === 0 || (exx + ey) % 4 !== 0) {
-    ex.fillStyle = ((exx + ey) % 3 === 0) ? '#b2eaff' : '#ffcb77'; ex.fillRect(exx, ey, 9, 13);
+    ex.fillStyle = ((exx + ey) % 3 === 0) ? '#8fe0d1' : '#ffd58a'; ex.fillRect(exx, ey, 9, 13);
   }
   var windowTex = new THREE.CanvasTexture(windowCanvas); windowTex.encoding = THREE.sRGBEncoding; windowTex.wrapS = windowTex.wrapT = THREE.RepeatWrapping;
   var emissionTex = new THREE.CanvasTexture(emissionCanvas); emissionTex.encoding = THREE.sRGBEncoding; emissionTex.wrapS = emissionTex.wrapT = THREE.RepeatWrapping;
-  var buildingMat = new THREE.MeshStandardMaterial({ map: windowTex, emissiveMap: emissionTex, emissive: '#ffe3af', emissiveIntensity: 0.68, roughness: 0.82 });
+  var buildingMat = new THREE.MeshStandardMaterial({ map: windowTex, emissiveMap: emissionTex, emissive: '#ffe0ac', emissiveIntensity: 0.72, roughness: 0.88 });
   var roofMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1 });
   var lots = [];
   for (var gx = -3; gx <= 3; gx++) for (var gz = -3; gz <= 3; gz++) {
+    // Keep the dedicated Palma coastal drive clear of the westmost city blocks.
+    if (gx === -3) continue;
     var x = gx * 82, z = gz * 82;
     var count = SF.random.chance(0.34) ? 2 : 1;
     for (var n = 0; n < count; n++) {
@@ -33,8 +36,10 @@
       var d = SF.random.range(count === 1 ? 25 : 15, count === 1 ? 38 : 23);
       var ox = count === 1 ? 0 : (n === 0 ? -13 : 13);
       var oz = count === 1 ? 0 : SF.random.range(-8, 8);
-      var height = SF.random.range(12, 30) + Math.max(0, 50 - Math.hypot(x - 8, z + 4) * 0.14);
-      height = Math.min(70, height);
+      var downtown = Math.hypot(x - 8, z + 4);
+      var height = SF.random.range(12, 29) + Math.max(0, 52 - downtown * 0.18);
+      if (x > 145) height *= 0.58; // low roofs open the eastern hill and port skylines
+      height = Math.min(74, height);
       lots.push({ x: x + ox, z: z + oz, w: w, d: d, h: height, color: palette[Math.floor(SF.random.next() * palette.length)] });
     }
   }
@@ -64,7 +69,7 @@
   var frondMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.94, side: THREE.DoubleSide });
   var frondsA = new THREE.InstancedMesh(frondGeo, frondMat, palmPoints.length * 6);
   var frondsB = new THREE.InstancedMesh(frondGeo, frondMat, palmPoints.length * 6);
-  var leafColors = ['#25875e','#319b67','#49ac68'];
+  var leafColors = ['#32684b','#477e56','#5c9058'];
   var fi = 0;
   palmPoints.forEach(function (p) {
     dummy.position.set(p.x, p.h / 2, p.z); dummy.scale.set(1, p.h, 1); dummy.rotation.set(0, 0, (SF.random.next() - 0.5) * 0.06); dummy.updateMatrix(); trunkMesh.setMatrixAt(palmPoints.indexOf(p), dummy.matrix);
@@ -101,7 +106,7 @@
     return new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
   }
   var brandNames = ['SOLANO COLA','BAY FM 99.1','HOTEL MARISOL','PALMA AUTOS'];
-  var brandColors = ['#ff584d','#69def0','#ffb65c','#64e1a0'];
+  var brandColors = ['#e76f5e','#52cfc1','#eab35f','#7caa91'];
   var billboardMat = brandNames.map(function (name, i) { return makeSign(name, brandColors[i]); });
   var boardGeo = new THREE.BoxGeometry(16, 4.5, 0.8);
   var boardPoleGeo = new THREE.BoxGeometry(0.65, 7, 0.65);
@@ -144,13 +149,13 @@
   group.add(kioskMesh, canopyMesh);
 
   var wheel = new THREE.Group(); wheel.position.set(-315, 27, 90);
-  var wheelMat = new THREE.MeshStandardMaterial({ color: '#e9a2d1', metalness: 0.42, roughness: 0.48 });
+  var wheelMat = new THREE.MeshStandardMaterial({ color: '#b99c83', metalness: 0.34, roughness: 0.58 });
   var rim = new THREE.Mesh(new THREE.TorusGeometry(24, 0.75, 8, 48), wheelMat); wheel.add(rim);
   var spokeGeo = new THREE.CylinderGeometry(0.22, 0.22, 48, 6);
   var spokes = new THREE.InstancedMesh(spokeGeo, wheelMat, 12);
   for (var sp = 0; sp < 12; sp++) { dummy.position.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.rotation.set(0, 0, Math.PI / 2 + sp * Math.PI / 6); dummy.updateMatrix(); spokes.setMatrixAt(sp, dummy.matrix); }
   spokes.castShadow = true; wheel.add(spokes);
-  var hub = new THREE.Mesh(new THREE.SphereGeometry(2.5, 12, 8), new THREE.MeshStandardMaterial({ color: '#ffbd65', emissive: '#ff843d', emissiveIntensity: 0.4 })); wheel.add(hub);
+  var hub = new THREE.Mesh(new THREE.SphereGeometry(2.5, 12, 8), new THREE.MeshStandardMaterial({ color: '#f1bc70', emissive: '#c98547', emissiveIntensity: 0.3 })); wheel.add(hub);
   var cabinGeo = new THREE.BoxGeometry(3.4, 3.6, 3.4);
   var cabinMat = new THREE.MeshStandardMaterial({ color: '#ffbf54', roughness: 0.72 });
   var cabins = new THREE.InstancedMesh(cabinGeo, cabinMat, 12);
