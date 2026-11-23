@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#181522">
+  <title>Sunfall — Solano Bay</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root { color-scheme: dark; font-family: Arial, Helvetica, sans-serif; color: #fff1dd; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #181522; }
+    [hidden] { display: none !important; }
+    #game { position: fixed; inset: 0; overflow: hidden; }
+    #game > canvas.renderer-canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+    #start-screen { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; background: linear-gradient(180deg, #15142255 0%, #17131c08 35%, #17131c99 75%, #111019ee 100%); text-align: center; }
+    .edition { position: absolute; top: 32px; left: 36px; right: 36px; display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: #ffebcebb; }
+    .eyebrow { margin: 70px 0 16px; font-size: 12px; letter-spacing: .5em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(70px, 15vw, 196px); font-weight: 900; line-height: .95; letter-spacing: -.055em; padding-right: .055em; color: #ffedcf; text-shadow: 0 8px 55px #672e3e55; }
+    .tagline { margin: 24px 0 38px; color: #ffedcacc; font-size: 13px; letter-spacing: .28em; text-transform: uppercase; }
+    #start-button { padding: 17px 54px; border: 1px solid #ffe3b6; border-radius: 2px; color: #241b25; background: #ffe3b6; font: bold 12px Arial, sans-serif; letter-spacing: .22em; text-transform: uppercase; cursor: pointer; transition: background .15s, transform .15s; }
+    #start-button:hover { background: #fff1d5; transform: translateY(-2px); }
+    #start-button:focus-visible { outline: 2px solid #fff; outline-offset: 5px; }
+    .controls { max-width: 640px; margin: 28px 0 0; font-size: 11px; line-height: 2; color: #fff0d6aa; }
+    .controls span { display: inline-block; margin: 0 9px; }
+    kbd { color: #fff0d6; font: inherit; font-weight: bold; }
+    .start-footer { position: absolute; bottom: 26px; font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: #e5c6b680; }
+    #hud { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+    #top-bar { position: absolute; top: 24px; left: 24px; right: 290px; text-shadow: 0 2px 8px #191724; }
+    #district-label { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: #e7c6ab; }
+    #mission-name { margin-top: 12px; font-size: 18px; font-weight: bold; letter-spacing: .08em; }
+    #objective-line { margin-top: 7px; max-width: 620px; font-size: 12px; line-height: 1.5; color: #fff1ddcc; }
+    #minimap { position: absolute; bottom: 24px; left: 24px; width: 180px; height: 180px; border: 1px solid #f5cf9666; border-radius: 8px; background: #191724dd; }
+    #bottom-hotbar { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; gap: 5px; }
+    .weapon-slot { width: 122px; padding: 10px 9px; background: #191724e8; border: 1px solid #f5cf9638; border-radius: 3px; }
+    .weapon-slot b { float: left; margin-right: 8px; color: #f5cf96; font-size: 12px; }
+    .weapon-slot span { font-size: 11px; white-space: nowrap; }
+    .weapon-slot small { display: block; margin-top: 7px; font-size: 8px; letter-spacing: .08em; color: #c6b9b2; }
+    .weapon-slot.locked { opacity: .5; }
+    .weapon-slot.selected { border-color: #ffdf9e; box-shadow: inset 0 -2px #ffdf9e; }
+    #hint-line { position: absolute; bottom: 107px; left: 220px; right: 220px; text-align: center; font-size: 10px; color: #fff1ddbb; }
+    #crew-panel { position: absolute; top: 152px; left: 24px; width: 188px; padding: 13px; border: 1px solid #f5cf9638; background: #191724d9; border-radius: 3px; }
+    .crew-heading { font-size: 10px; letter-spacing: .16em; margin-bottom: 9px; color: #f5cf96; }
+    .crew-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10px; }
+    .crew-row span { font-size: 8px; color: #a7dfbf; }
+    #speedometer { position: absolute; right: 24px; bottom: 24px; width: 170px; text-align: right; padding: 12px 15px; background: #191724d9; border: 1px solid #f5cf9638; border-radius: 3px; }
+    #speed-value { font-size: 42px; font-weight: bold; font-variant-numeric: tabular-nums; }
+    #speedometer small { font-size: 10px; color: #e7c6ab; }
+    #speed-state { font-size: 9px; margin-top: 5px; color: #e7c6ab; }
+    #lock-panel { position: absolute; top: 285px; left: 24px; width: 210px; padding: 12px; background: #191724e8; border: 1px solid #fff0a855; border-radius: 3px; }
+    .lock-heading { font-size: 9px; display: flex; justify-content: space-between; gap: 8px; color: #fff0a8; }
+    .lock-track { height: 5px; margin-top: 9px; background: #ffffff18; }
+    #lock-fill { height: 100%; background: #fff0a8; }
+    #lockdown-timer { margin-top: 8px; font-size: 9px; letter-spacing: .08em; color: #ffba94; }
+    #dialogue-line { position: absolute; bottom: 140px; left: 235px; right: 235px; text-align: center; font-size: 12px; line-height: 1.6; color: #fff1dd; text-shadow: 0 2px 8px #191724; }
+    #continue-button { margin-top: 12px; padding: 12px 47px; background: #191724bb; border: 1px solid #f5cf9680; border-radius: 2px; color: #ffe3b6; font: bold 12px Arial; text-transform: uppercase; letter-spacing: .18em; cursor: pointer; }
+    #panels { position: absolute; inset: 0; }
+    #wanted-panel { position: absolute; top: 16px; right: 24px; width: 245px; padding: 9px 12px; text-align: right; border: 1px solid #f5cf9638; border-radius: 3px; background: #191724c9; }
+    #wanted-stars { font-size: 29px; letter-spacing: .12em; line-height: 1.2; filter: drop-shadow(0 2px 2px #15131c); }
+    #wanted-label { margin-top: 5px; font-size: 9px; letter-spacing: .2em; color: #eed9be; }
+    #cash { margin-top: 8px; font-size: 18px; color: #a7dfbf; text-shadow: 0 2px 8px #191724; }
+    #response-panel { position: absolute; top: 125px; right: 24px; width: 245px; padding: 13px 14px; border: 1px solid #f5cf9638; border-radius: 3px; background: #191724df; }
+    .response-heading { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .15em; }
+    #response-count { color: #b8b7be; font-size: 9px; letter-spacing: .07em; }
+    #response-state { margin: 10px 0; font-size: 9px; letter-spacing: .1em; }
+    #unit-list { max-height: calc(100vh - 325px); overflow-y: auto; }
+    .unit-row { display: grid; grid-template-columns: 7px 55px 1fr 35px; gap: 5px; align-items: center; min-height: 23px; border-top: 1px solid #ffffff0c; font-size: 9px; }
+    .unit-row i { width: 5px; height: 5px; border-radius: 50%; }
+    .unit-row b { font-weight: normal; color: #fff1dd; }
+    .unit-row span { color: #b7afbd; text-transform: uppercase; font-size: 8px; }
+    .unit-row em { font-style: normal; text-align: right; color: #f6cc9c; }
+    .no-units { padding-top: 8px; color: #a99bac; font-size: 10px; }
+    .map-legend { position: absolute; bottom: 9px; left: 27px; font-size: 8px; letter-spacing: .04em; color: #d6caba; }
+    .map-legend .cruiser { color: #ff586b; } .map-legend .officer { color: #78b7ff; } .map-legend .air { color: #fff0a8; }
+    #weapon-label { position: absolute; bottom: 87px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #fff1ddbb; white-space: nowrap; text-shadow: 0 2px 8px #191724; }
+    #bust-panel { position: absolute; bottom: 130px; right: 24px; width: 170px; padding: 10px 12px; background: #191724e8; border: 1px solid #ff586b66; border-radius: 3px; }
+    .bust-heading { display: flex; justify-content: space-between; margin-bottom: 7px; font-size: 10px; letter-spacing: .16em; color: #ffb7a4; }
+    .bust-track { height: 5px; background: #5b3c4766; }
+    #bust-fill { height: 100%; width: 0; background: #ff586b; box-shadow: 0 0 13px #ff586b55; }
+    #busted-screen { position: fixed; inset: 0; z-index: 8; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #15131ce8; pointer-events: none; text-align: center; }
+    #busted-screen strong { color: #ff7c77; font-size: clamp(54px, 10vw, 110px); font-weight: 900; letter-spacing: .08em; text-shadow: 0 0 45px #a9313e55; }
+    #busted-details { max-width: 80vw; font-size: 12px; line-height: 1.8; letter-spacing: .07em; color: #f0d9c2; }
+    #hud [data-interactive] { pointer-events: auto; }
+    #centre-banner { position: fixed; top: 27%; left: 50%; transform: translateX(-50%); max-width: 55%; z-index: 3; pointer-events: none; color: #ffe3b6; text-align: center; font-size: 22px; letter-spacing: .12em; text-shadow: 0 2px 15px #13101c; }
+    .banner-objective { display: block; margin-top: 12px; font-size: 12px; line-height: 1.6; letter-spacing: .02em; color: #fff1dd; }
+    #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    @media (max-width: 700px) { #start-screen { padding: 20px; } .edition { top: 24px; left: 20px; right: 20px; font-size: 9px; } .eyebrow { font-size: 10px; } .tagline { font-size: 10px; } .controls { max-width: 350px; } .start-footer { font-size: 8px; } #top-bar { right: 180px; } #mission-name { font-size: 12px; } #objective-line { font-size: 10px; } #wanted-panel, #response-panel { right: 14px; width: 155px; } #response-panel { top: 118px; padding: 9px; } #minimap { width: 180px; height: 180px; left: 14px; } .map-legend { left: 16px; } #bottom-hotbar { bottom: 216px; } .weapon-slot { width: 110px; } #weapon-label { bottom: 280px; font-size: 9px; } #hint-line { bottom: 301px; left: 15px; right: 15px; } #dialogue-line { bottom: 329px; left: 25px; right: 25px; font-size: 10px; } #crew-panel { width: 170px; left: 14px; top: 170px; } #lock-panel { top: 291px; left: 14px; width: 170px; } #speedometer, #bust-panel { right: 14px; width: 150px; } #centre-banner { top: 20%; font-size: 15px; } }
+    @media (max-height: 560px) and (min-width: 701px) { #crew-panel { top: 123px; padding: 8px; } .crew-heading { margin-bottom: 5px; } .crew-row { margin-top: 5px; } #lock-panel { top: 123px; left: 230px; } #response-panel { top: 110px; padding: 8px 12px; } #unit-list { max-height: 80px; } #centre-banner { top: 49%; font-size: 16px; } .banner-objective { margin-top: 6px; font-size: 10px; } .eyebrow { margin-top: 20px; } .tagline { margin: 15px 0 20px; } .controls { margin-top: 15px; } .start-footer { display: none; } }
+  </style>
+</head>
+<body>
+  <main id="game" aria-label="Sunfall game view"></main>
+  <section id="start-screen" aria-labelledby="game-title">
+    <div class="edition"><span>Solano Bay · Golden hour</span><span>Nine jobs. One last wave.</span></div>
+    <p class="eyebrow">Welcome to Solano Bay</p>
+    <h1 id="game-title">SUNFALL</h1>
+    <p class="tagline">One city. A thousand ways out.</p>
+    <button id="start-button" type="button">Start</button>
+    <button id="continue-button" type="button" hidden>Continue</button>
+    <p class="controls">
+      <span><kbd>WASD / arrows</kbd> Walk</span><span><kbd>Shift</kbd> Sprint</span>
+      <span><kbd>Space</kbd> Jump</span><span><kbd>Drag mouse</kbd> Orbit</span>
+      <span><kbd>F</kbd> Enter / exit car</span><span><kbd>WASD</kbd> Drive</span><span><kbd>Space in car</kbd> Handbrake</span>
+      <span><kbd>Click / Q</kbd> Punch / fire</span><span><kbd>1 / 2 / 3</kbd> Weapon / shop preview</span>
+      <span><kbd>E at safehouse</kbd> Story job</span><span><kbd>Green shop marker</kbd> Buy previewed weapon</span>
+      <span><kbd>Scroll</kbd> Zoom</span><span><kbd>Esc</kbd> Pause</span>
+    </p>
+    <div class="start-footer">A sunset coastal crime game · Built for the open road</div>
+  </section>
+  <div id="hud" hidden>
+    <div id="top-bar"><div id="district-label"></div><div id="mission-name"></div><div id="objective-line"></div></div>
+    <canvas id="minimap" width="180" height="180" aria-label="Minimap: red cruisers, blue officers, yellow AIR ONE, green safehouse"></canvas>
+    <div class="map-legend"><span class="cruiser">● Cruiser</span> · <span class="officer">● Officer</span> · <span class="air">+ AIR ONE</span></div>
+    <div id="bottom-hotbar"><div id="weapon-fists"></div><div id="weapon-sidearm"></div><div id="weapon-carbine"></div></div>
+    <div id="weapon-label"></div>
+    <div id="hint-line"></div>
+    <div id="dialogue-line" aria-live="polite"></div>
+    <div id="crew-panel"><div class="crew-heading">CREW READINESS</div>
+      <div class="crew-row"><b>Lucia</b><span id="crew-lucia">READY</span></div>
+      <div class="crew-row"><b>Jason</b><span id="crew-jason">READY</span></div>
+      <div class="crew-row"><b>Dre</b><span id="crew-dre">ON CALL</span></div>
+    </div>
+    <div id="lock-panel" hidden><div class="lock-heading"><b>AIR ONE LOCK</b><span id="lock-value"></span></div>
+      <div class="lock-track"><div id="lock-fill"></div></div><div id="lockdown-timer"></div>
+    </div>
+    <div id="speedometer" hidden><strong id="speed-value">0</strong> <small>KM/H</small><div id="speed-state"></div></div>
+    <div id="panels">
+      <div id="wanted-panel"><div id="wanted-stars" aria-label="Wanted stars"><span id="wanted-star-1">★</span><span id="wanted-star-2">★</span><span id="wanted-star-3">★</span><span id="wanted-star-4">★</span><span id="wanted-star-5">★</span></div><div id="wanted-label">SOLANO BAY</div><div id="cash"></div></div>
+      <div id="response-panel"><div class="response-heading"><b>PD RESPONSE</b><span id="response-count">0 ACTIVE</span></div><div id="response-state">CHANNEL CLEAR</div><div id="unit-list" data-interactive></div></div>
+      <div id="bust-panel" hidden><div class="bust-heading"><b>BUST</b><span id="bust-value">0%</span></div><div class="bust-track"><div id="bust-fill"></div></div></div>
+    </div>
+  </div>
+  <div id="busted-screen" hidden><strong>BUSTED</strong><p id="busted-details"></p></div>
+  <div id="centre-banner" role="status" aria-live="polite"></div>
+  <p id="status" role="status" aria-live="polite"></p>
+  <script src="vendor/three.min.js"></script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
